@@ -1,0 +1,171 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Navbar } from '@/components/common/Navbar';
+import { ProtectedRoute } from '@/components/common/ProtectedRoute';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { ErrorMessage } from '@/components/common/ErrorMessage';
+import { translations } from '@/lib/utils/translations';
+import { trainingApi } from '@/lib/api';
+import { TrainingJob } from '@/types';
+
+export default function JobsPage() {
+  const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    loadJobs();
+    const interval = setInterval(loadJobs, 5000); // Auto-refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadJobs = async () => {
+    try {
+      const data = await trainingApi.getJobs();
+      setJobs(data);
+      setError('');
+      if (loading) setLoading(false);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || translations.errors.generic);
+      setLoading(false);
+    }
+  };
+
+  const handleCancel = async (id: number) => {
+    if (!confirm(translations.jobs.confirmCancel)) return;
+
+    try {
+      await trainingApi.cancelJob(id);
+      loadJobs();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || translations.jobs.cancelError);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'running':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'failed':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    const statusMap: Record<string, string> = {
+      pending: translations.jobs.statuses.pending,
+      running: translations.jobs.statuses.running,
+      completed: translations.jobs.statuses.completed,
+      failed: translations.jobs.statuses.failed,
+    };
+    return statusMap[status] || status;
+  };
+
+  return (
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-800">{translations.jobs.title}</h1>
+            <button
+              onClick={loadJobs}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              {translations.jobs.refresh}
+            </button>
+          </div>
+
+          {loading ? (
+            <LoadingSpinner />
+          ) : error ? (
+            <ErrorMessage message={error} onRetry={loadJobs} />
+          ) : jobs.length === 0 ? (
+            <div className="bg-white p-8 rounded-lg shadow-md text-center">
+              <p className="text-gray-600">{translations.jobs.noJobs}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {jobs.map((job) => (
+                <div key={job.id} className="bg-white p-6 rounded-lg shadow-md">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="flex items-center space-x-reverse space-x-3 mb-2">
+                        <h3 className="text-lg font-bold text-gray-800">
+                          {translations.jobs.jobId}: {job.id}
+                        </h3>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                            job.status
+                          )}`}
+                        >
+                          {getStatusText(job.status)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-1">
+                        <strong>{translations.jobs.modelType}:</strong> {job.model_type}
+                      </p>
+                      <p className="text-sm text-gray-600 mb-1">
+                        <strong>{translations.jobs.createdAt}:</strong>{' '}
+                        {new Date(job.created_at).toLocaleString('fa-IR')}
+                      </p>
+                      {job.started_at && (
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>{translations.jobs.startedAt}:</strong>{' '}
+                          {new Date(job.started_at).toLocaleString('fa-IR')}
+                        </p>
+                      )}
+                      {job.completed_at && (
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>{translations.jobs.completedAt}:</strong>{' '}
+                          {new Date(job.completed_at).toLocaleString('fa-IR')}
+                        </p>
+                      )}
+                      {job.error_message && (
+                        <p className="text-sm text-red-600 mt-2">
+                          <strong>خطا:</strong> {job.error_message}
+                        </p>
+                      )}
+                    </div>
+                    {(job.status === 'pending' || job.status === 'running') && (
+                      <button
+                        onClick={() => handleCancel(job.id)}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
+                      >
+                        {translations.jobs.cancel}
+                      </button>
+                    )}
+                  </div>
+
+                  {job.status === 'running' && job.progress !== undefined && (
+                    <div className="mt-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-medium text-gray-700">
+                          {translations.jobs.progress}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700">{job.progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${job.progress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </ProtectedRoute>
+  );
+}
