@@ -7,6 +7,7 @@ import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { modelApi, recommendationApi } from '@/lib/api';
 import { Model, Recommendation } from '@/types';
 
@@ -34,8 +35,8 @@ function RecommendationsContent() {
       const data = await modelApi.getAll();
       setModels(data);
       setError('');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.errors.generic);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
     } finally {
       setLoading(false);
     }
@@ -48,12 +49,12 @@ function RecommendationsContent() {
     try {
       const data = await recommendationApi.getRecommendations({
         user_id: parseInt(formData.userId),
-        model_id: parseInt(formData.modelId),
-        n_recommendations: parseInt(formData.numRecommendations),
+        job_id: String(formData.modelId),
+        top_k: parseInt(formData.numRecommendations),
       });
       setRecommendations(data);
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || translations.recommendations.error);
+    } catch (err: unknown) {
+      alert(getApiErrorDetail(err) || translations.recommendations.error);
       setRecommendations([]);
     } finally {
       setSubmitting(false);

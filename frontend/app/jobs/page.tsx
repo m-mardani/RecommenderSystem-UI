@@ -1,46 +1,63 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navbar } from '@/components/common/Navbar';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { trainingApi } from '@/lib/api';
 import { TrainingJob } from '@/types';
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadJobs();
-    const interval = setInterval(loadJobs, 5000); // Auto-refresh every 5 seconds
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     try {
+      setError('');
       const data = await trainingApi.getJobs();
       setJobs(data);
-      setError('');
-      if (loading) setLoading(false);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.errors.generic);
-      setLoading(false);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
     }
-  };
+  }, []);
 
-  const handleCancel = async (id: number) => {
-    if (!confirm(translations.jobs.confirmCancel)) return;
-
+  const handleRefresh = useCallback(async () => {
     try {
-      await trainingApi.cancelJob(id);
-      loadJobs();
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || translations.jobs.cancelError);
+      setRefreshing(true);
+      await fetchJobs();
+    } finally {
+      setRefreshing(false);
     }
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    let mounted = true;
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await fetchJobs();
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      })();
+    }, 0);
+    const intervalId = window.setInterval(() => {
+      void fetchJobs();
+    }, 5000); // Auto-refresh every 5 seconds
+    return () => {
+      mounted = false;
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [fetchJobs]);
+
+  const handleCancel = async () => {
+    alert('لغو کار آموزشی در بک‌اند فعلی پشتیبانی نمی‌شود.');
   };
 
   const getStatusColor = (status: string) => {
@@ -76,17 +93,18 @@ export default function JobsPage() {
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-800">{translations.jobs.title}</h1>
             <button
-              onClick={loadJobs}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
             >
-              {translations.jobs.refresh}
+              {refreshing ? translations.common.loading : translations.jobs.refresh}
             </button>
           </div>
 
           {loading ? (
             <LoadingSpinner />
           ) : error ? (
-            <ErrorMessage message={error} onRetry={loadJobs} />
+            <ErrorMessage message={error} onRetry={handleRefresh} />
           ) : jobs.length === 0 ? (
             <div className="bg-white p-8 rounded-lg shadow-md text-center">
               <p className="text-gray-600">{translations.jobs.noJobs}</p>
@@ -110,11 +128,11 @@ export default function JobsPage() {
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 mb-1">
-                        <strong>{translations.jobs.modelType}:</strong> {job.model_type}
+                        <strong>{translations.jobs.modelType}:</strong> {job.model_type || '-'}
                       </p>
                       <p className="text-sm text-gray-600 mb-1">
                         <strong>{translations.jobs.createdAt}:</strong>{' '}
-                        {new Date(job.created_at).toLocaleString('fa-IR')}
+                        {job.created_at ? new Date(job.created_at).toLocaleString('fa-IR') : '-'}
                       </p>
                       {job.started_at && (
                         <p className="text-sm text-gray-600 mb-1">
@@ -136,7 +154,7 @@ export default function JobsPage() {
                     </div>
                     {(job.status === 'pending' || job.status === 'running') && (
                       <button
-                        onClick={() => handleCancel(job.id)}
+                        onClick={handleCancel}
                         className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
                       >
                         {translations.jobs.cancel}

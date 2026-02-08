@@ -1,0 +1,58 @@
+### Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+
+### Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+### Environment files (keep .env.example tracked if you have one)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+### TypeScript
+*.tsbuildinfo
+
+### Coverage / test output
+coverage/
+.nyc_output/
+
+### IDE / editor
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+
+### OS
+.DS_Store
+Thumbs.db
+
+### Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+### Jupyter
+.ipynb_checkpoints/

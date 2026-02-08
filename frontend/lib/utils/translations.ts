@@ -96,6 +96,9 @@ export const translations = {
     startNew: 'شروع آموزش جدید',
     selectDataset: 'انتخاب مجموعه داده',
     selectModel: 'انتخاب نوع مدل',
+    trainAuto: 'آموزش خودکار',
+    trainEngine: 'آموزش موتور',
+    oneAtATime: 'شما در حال حاضر یک آموزش فعال دارید. لطفاً تا پایان آن صبر کنید و سپس آموزش جدید را شروع کنید.',
     modelTypes: {
       collaborative: 'فیلتر مشارکتی',
       contentBased: 'مبتنی بر محتوا',

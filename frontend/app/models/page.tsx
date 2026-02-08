@@ -7,6 +7,7 @@ import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { modelApi } from '@/lib/api';
 import { Model } from '@/types';
 
@@ -15,6 +16,31 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  const formatMetricValue = (value: unknown): string => {
+    if (typeof value === 'number') return value.toFixed(4);
+    if (typeof value === 'string') return value;
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (value === null) return 'null';
+    if (value === undefined) return '-';
+
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      if ('val' in obj || 'test' in obj) {
+        const parts: string[] = [];
+        if ('val' in obj) parts.push(`val=${String(obj.val)}`);
+        if ('test' in obj) parts.push(`test=${String(obj.test)}`);
+        if (parts.length > 0) return parts.join(', ');
+      }
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    return String(value);
+  };
 
   useEffect(() => {
     loadModels();
@@ -26,26 +52,19 @@ export default function ModelsPage() {
       const data = await modelApi.getAll();
       setModels(data);
       setError('');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.errors.generic);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm(translations.models.confirmDelete)) return;
-
-    try {
-      await modelApi.delete(id);
-      loadModels();
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || translations.models.deleteError);
-    }
+  const handleDelete = async () => {
+    alert('حذف یک مدل به صورت تکی در بک‌اند فعلی پشتیبانی نمی‌شود.');
   };
 
-  const handleUseModel = (modelId: number) => {
-    router.push(`/recommendations?modelId=${modelId}`);
+  const handleUseModel = (modelId: string) => {
+    router.push(`/recommendations?modelId=${encodeURIComponent(modelId)}`);
   };
 
   return (
@@ -88,10 +107,10 @@ export default function ModelsPage() {
                     </p>
                     <p className="text-sm text-gray-600">
                       <strong>{translations.models.createdAt}:</strong>{' '}
-                      {new Date(model.created_at).toLocaleString('fa-IR')}
+                      {model.created_at ? new Date(model.created_at).toLocaleString('fa-IR') : '-'}
                     </p>
                     <p className="text-sm text-gray-600">
-                      <strong>{translations.models.trainingJob}:</strong> {model.training_job_id}
+                      <strong>{translations.models.trainingJob}:</strong> {model.id}
                     </p>
                   </div>
 
@@ -102,7 +121,7 @@ export default function ModelsPage() {
                         {Object.entries(model.metrics).map(([key, value]) => (
                           <div key={key} className="flex justify-between text-sm text-gray-600">
                             <span>{key}:</span>
-                            <span className="font-medium">{typeof value === 'number' ? value.toFixed(4) : value}</span>
+                            <span className="font-medium">{formatMetricValue(value)}</span>
                           </div>
                         ))}
                       </div>
@@ -117,7 +136,7 @@ export default function ModelsPage() {
                       {translations.models.use}
                     </button>
                     <button
-                      onClick={() => handleDelete(model.id)}
+                      onClick={handleDelete}
                       className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
                     >
                       {translations.common.delete}

@@ -91,7 +91,7 @@ cp .env.example .env.local
 و آدرس API را تنظیم کنید:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ```
 
 ### اجرا

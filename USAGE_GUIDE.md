@@ -30,7 +30,7 @@ cp .env.example .env.local
 سپس فایل را باز کرده و آدرس API بک‌اند خود را وارد کنید:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ```
 
 ### ۴. اجرای برنامه

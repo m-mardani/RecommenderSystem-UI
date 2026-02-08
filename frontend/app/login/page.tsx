@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/utils/translations';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -20,8 +21,8 @@ export default function LoginPage() {
 
     try {
       await login({ username, password });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.auth.loginError);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.auth.loginError);
     } finally {
       setLoading(false);
     }

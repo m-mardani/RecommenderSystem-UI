@@ -48,7 +48,7 @@ export const Navbar = () => {
             {user && (
               <>
                 <span className="text-sm">
-                  {user.username} ({user.role === 'ADMIN' ? translations.auth.admin : translations.auth.user})
+                  {user.username} ({isAdmin ? translations.auth.admin : translations.auth.user})
                 </span>
                 <button
                   onClick={logout}

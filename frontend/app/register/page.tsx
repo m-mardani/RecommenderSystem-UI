@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/utils/translations';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('');
@@ -28,8 +29,8 @@ export default function RegisterPage() {
 
     try {
       await register({ username, email, password });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.auth.registerError);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.auth.registerError);
     } finally {
       setLoading(false);
     }

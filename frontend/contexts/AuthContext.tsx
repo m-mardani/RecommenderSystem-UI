@@ -28,9 +28,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const checkAuth = async () => {
     try {
+      if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+          setUser(null);
+          return;
+        }
+      }
       const currentUser = await authApi.getCurrentUser();
       setUser(currentUser);
-    } catch (error) {
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
@@ -72,7 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     register,
     logout,
     isAuthenticated: !!user,
-    isAdmin: user?.role === 'ADMIN',
+    isAdmin: (user?.roles || []).map((r) => String(r).toUpperCase()).includes('ADMIN'),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

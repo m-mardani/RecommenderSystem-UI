@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { jwtDecode } from 'jwt-decode';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -39,10 +39,21 @@ const clearTokens = (): void => {
   }
 };
 
+const redirectToLoginIfNeeded = (): void => {
+  if (typeof window === 'undefined') return;
+  const path = window.location.pathname;
+  if (path === '/login' || path === '/register') return;
+  const w = window as unknown as { __redirectingToLogin?: boolean };
+  if (w.__redirectingToLogin) return;
+  w.__redirectingToLogin = true;
+  window.location.assign('/login');
+};
+
 const isTokenExpired = (token: string): boolean => {
   try {
-    const decoded: any = jwtDecode(token);
+    const decoded = jwtDecode<{ exp?: number }>(token);
     const currentTime = Date.now() / 1000;
+    if (typeof decoded.exp !== 'number') return true;
     return decoded.exp < currentTime;
   } catch {
     return true;
@@ -59,24 +70,18 @@ apiClient.interceptors.request.use(
       const refreshToken = getRefreshToken();
       if (refreshToken && !isTokenExpired(refreshToken)) {
         try {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-            refresh_token: refreshToken,
-          });
+          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
           const { access_token, refresh_token: new_refresh_token } = response.data;
           setTokens(access_token, new_refresh_token);
           accessToken = access_token;
         } catch (error) {
           clearTokens();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
+          redirectToLoginIfNeeded();
           return Promise.reject(error);
         }
       } else {
         clearTokens();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
-        }
+        redirectToLoginIfNeeded();
         return Promise.reject(new Error('Token expired'));
       }
     }
@@ -104,9 +109,7 @@ apiClient.interceptors.response.use(
       const refreshToken = getRefreshToken();
       if (refreshToken && !isTokenExpired(refreshToken)) {
         try {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-            refresh_token: refreshToken,
-          });
+          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
           const { access_token, refresh_token: new_refresh_token } = response.data;
           setTokens(access_token, new_refresh_token);
 
@@ -114,16 +117,12 @@ apiClient.interceptors.response.use(
           return apiClient(originalRequest);
         } catch (refreshError) {
           clearTokens();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
+          redirectToLoginIfNeeded();
           return Promise.reject(refreshError);
         }
       } else {
         clearTokens();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
-        }
+        redirectToLoginIfNeeded();
       }
     }
 

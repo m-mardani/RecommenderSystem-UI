@@ -1,9 +1,12 @@
 export interface User {
-  id: number;
+  sub: string;
   username: string;
-  email: string;
-  role: 'ADMIN' | 'USER';
-  is_active: boolean;
+  token_type: string;
+  jti: string;
+  iat: number;
+  exp: number;
+  roles: string[];
+  permissions: string[];
 }
 
 export interface TokenResponse {
@@ -25,37 +28,36 @@ export interface RegisterData {
 }
 
 export interface Dataset {
-  id: number;
+  id: string;
   name: string;
   description: string;
-  file_path: string;
   upload_date: string;
-  uploaded_by: number;
   row_count?: number;
   column_count?: number;
 }
 
 export interface TrainingJob {
-  id: number;
-  dataset_id: number;
-  model_type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  created_at: string;
+  id: string;
+  dataset_id?: string;
+  model_type?: string;
+  status: string;
+  created_at?: string;
   started_at?: string;
   completed_at?: string;
-  created_by: number;
   progress?: number;
   error_message?: string;
 }
 
 export interface Model {
-  id: number;
+  id: string;
   name: string;
   model_type: string;
-  file_path: string;
-  training_job_id: number;
-  created_at: string;
-  metrics?: Record<string, number>;
+  created_at?: string;
+  dataset_id?: string;
+  uploader_username?: string;
+  original_filename?: string;
+  model_s3_uri?: string;
+  metrics?: Record<string, unknown>;
 }
 
 export interface Recommendation {
@@ -66,8 +68,8 @@ export interface Recommendation {
 
 export interface RecommendationRequest {
   user_id: number;
-  model_id: number;
-  n_recommendations?: number;
+  job_id: string;
+  top_k?: number;
 }
 
 export interface ApiError {

@@ -6,6 +6,7 @@ import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { datasetApi } from '@/lib/api';
 import { Dataset } from '@/types';
 
@@ -32,8 +33,8 @@ export default function DatasetsPage() {
       const data = await datasetApi.getAll();
       setDatasets(data);
       setError('');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || translations.errors.generic);
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
     } finally {
       setLoading(false);
     }
@@ -55,22 +56,15 @@ export default function DatasetsPage() {
       setShowUploadForm(false);
       setFormData({ name: '', description: '', file: null });
       loadDatasets();
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || translations.datasets.uploadError);
+    } catch (err: unknown) {
+      alert(getApiErrorDetail(err) || translations.datasets.uploadError);
     } finally {
       setUploadLoading(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm(translations.datasets.confirmDelete)) return;
-
-    try {
-      await datasetApi.delete(id);
-      loadDatasets();
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || translations.datasets.deleteError);
-    }
+  const handleDelete = async () => {
+    alert('حذف تکی مجموعه‌داده در بک‌اند فعلی پشتیبانی نمی‌شود.');
   };
 
   return (
@@ -185,7 +179,7 @@ export default function DatasetsPage() {
                       <td className="px-6 py-4 text-sm text-gray-600">{dataset.row_count || '-'}</td>
                       <td className="px-6 py-4 text-sm">
                         <button
-                          onClick={() => handleDelete(dataset.id)}
+                          onClick={handleDelete}
                           className="text-red-600 hover:text-red-800 font-medium"
                         >
                           {translations.common.delete}
