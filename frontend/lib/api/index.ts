@@ -169,8 +169,10 @@ export const datasetApi = {
     };
   },
 
-  delete: async (): Promise<void> => {
-    throw new Error('Deleting a single dataset is not supported by the backend API.');
+  delete: async (datasetId: string): Promise<void> => {
+    const id = String(datasetId).trim();
+    if (!id) throw new Error('dataset_id is required');
+    await apiClient.delete(`/engine/datasets/${encodeURIComponent(id)}`);
   },
 };
 
@@ -305,8 +307,10 @@ export const modelApi = {
     };
   },
 
-  delete: async (): Promise<void> => {
-    throw new Error('Deleting a single model is not supported by the backend API.');
+  delete: async (jobId: string): Promise<void> => {
+    const id = String(jobId).trim();
+    if (!id) throw new Error('job_id is required');
+    await apiClient.delete(`/engine/models/${encodeURIComponent(id)}`);
   },
 };
 

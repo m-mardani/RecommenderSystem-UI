@@ -59,8 +59,14 @@ export default function ModelsPage() {
     }
   };
 
-  const handleDelete = async () => {
-    alert('حذف یک مدل به صورت تکی در بک‌اند فعلی پشتیبانی نمی‌شود.');
+  const handleDelete = async (jobId: string) => {
+    try {
+      setError('');
+      await modelApi.delete(jobId);
+      setModels((prev) => prev.filter((m) => m.id !== jobId));
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
+    }
   };
 
   const handleUseModel = (modelId: string) => {
@@ -136,7 +142,7 @@ export default function ModelsPage() {
                       {translations.models.use}
                     </button>
                     <button
-                      onClick={handleDelete}
+                      onClick={() => handleDelete(model.id)}
                       className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
                     >
                       {translations.common.delete}

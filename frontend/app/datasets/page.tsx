@@ -63,8 +63,14 @@ export default function DatasetsPage() {
     }
   };
 
-  const handleDelete = async () => {
-    alert('حذف تکی مجموعه‌داده در بک‌اند فعلی پشتیبانی نمی‌شود.');
+  const handleDelete = async (datasetId: string) => {
+    try {
+      setError('');
+      await datasetApi.delete(datasetId);
+      setDatasets((prev) => prev.filter((d) => d.id !== datasetId));
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
+    }
   };
 
   return (
@@ -179,7 +185,7 @@ export default function DatasetsPage() {
                       <td className="px-6 py-4 text-sm text-gray-600">{dataset.row_count || '-'}</td>
                       <td className="px-6 py-4 text-sm">
                         <button
-                          onClick={handleDelete}
+                          onClick={() => handleDelete(dataset.id)}
                           className="text-red-600 hover:text-red-800 font-medium"
                         >
                           {translations.common.delete}
