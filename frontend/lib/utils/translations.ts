@@ -10,6 +10,9 @@ export const translations = {
     save: 'ذخیره',
     submit: 'ارسال',
     close: 'بستن',
+    progress: 'پیشرفت',
+    value: 'مقدار',
+    chart: 'نمودار',
     search: 'جستجو',
     filter: 'فیلتر',
     refresh: 'بروزرسانی',
@@ -88,6 +91,7 @@ export const translations = {
     noDatasets: 'هیچ مجموعه داده‌ای یافت نشد',
     selectFile: 'انتخاب فایل',
     dragDrop: 'فایل را اینجا بکشید یا کلیک کنید',
+    preview: 'پیش‌نمایش',
   },
 
   // Training

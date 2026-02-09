@@ -1,4 +1,5 @@
 import { apiClient, setTokens, clearTokens } from './client';
+import type { AxiosProgressEvent } from 'axios';
 import {
   LoginCredentials,
   RegisterData,
@@ -29,6 +30,22 @@ type EngineDatasetUploadResponse = {
   columns?: string[] | null;
 };
 
+type DatasetCreateOptions = {
+  signal?: AbortSignal;
+  onProgress?: (info: {
+    loaded: number;
+    total?: number;
+    percent?: number;
+  }) => void;
+};
+
+type EngineDatasetPreviewResponse = {
+  dataset_id: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  num_rows_returned: number;
+};
+
 type TrainedModelInfo = {
   job_id: string;
   status?: string | null;
@@ -45,6 +62,21 @@ type TrainedModelInfo = {
 
 type TrainedModelsResponse = {
   models: TrainedModelInfo[];
+};
+
+const normalizeEvaluationMetrics = (input: unknown): Record<string, unknown> | undefined => {
+  if (!input) return undefined;
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (input && typeof input === 'object' && !Array.isArray(input)) return input as Record<string, unknown>;
+  return undefined;
 };
 
 type EngineTrainResponse = {
@@ -148,15 +180,32 @@ export const datasetApi = {
     });
   },
 
-  create: async (file: File, _name: string, _description: string): Promise<Dataset> => {
+  create: async (
+    file: File,
+    _name: string,
+    _description: string,
+    options?: DatasetCreateOptions
+  ): Promise<Dataset> => {
     void _name;
     void _description;
     const bytes = await file.arrayBuffer();
-    const response = await apiClient.post<EngineDatasetUploadResponse>(`/engine/datasets/upload?filename=${encodeURIComponent(file.name)}`, bytes, {
-      headers: {
-        'Content-Type': 'text/csv',
-      },
-    });
+
+    const response = await apiClient.post<EngineDatasetUploadResponse>(
+      `/engine/datasets/upload?filename=${encodeURIComponent(file.name)}`,
+      bytes,
+      {
+        headers: {
+          'Content-Type': 'text/csv',
+        },
+        signal: options?.signal,
+        onUploadProgress: (evt: AxiosProgressEvent) => {
+          const loaded = typeof evt.loaded === 'number' ? evt.loaded : 0;
+          const total = typeof evt.total === 'number' ? evt.total : undefined;
+          const percent = total && total > 0 ? Math.round((loaded / total) * 100) : undefined;
+          options?.onProgress?.({ loaded, total, percent });
+        },
+      }
+    );
     const d = response.data;
     const columns = Array.isArray(d.columns) ? d.columns : [];
     return {
@@ -173,6 +222,15 @@ export const datasetApi = {
     const id = String(datasetId).trim();
     if (!id) throw new Error('dataset_id is required');
     await apiClient.delete(`/engine/datasets/${encodeURIComponent(id)}`);
+  },
+
+  getPreview: async (datasetId: string): Promise<EngineDatasetPreviewResponse> => {
+    const id = String(datasetId).trim();
+    if (!id) throw new Error('dataset_id is required');
+    const response = await apiClient.get<EngineDatasetPreviewResponse>(
+      `/engine/datasets/${encodeURIComponent(id)}/preview`
+    );
+    return response.data;
   },
 };
 
@@ -292,7 +350,7 @@ export const modelApi = {
       uploader_username: m.uploader_username ? String(m.uploader_username) : undefined,
       original_filename: m.original_filename ? String(m.original_filename) : undefined,
       model_s3_uri: m.model_s3_uri ? String(m.model_s3_uri) : undefined,
-      metrics: m.evaluation_metrics ?? undefined,
+      metrics: normalizeEvaluationMetrics(m.evaluation_metrics),
     }));
   },
 
