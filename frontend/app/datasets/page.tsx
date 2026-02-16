@@ -7,7 +7,8 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
-import { datasetApi } from '@/lib/api';
+import { datasetApi, multipartUploadDataset } from '@/lib/api';
+import { getAccessToken } from '@/lib/api/client';
 import { Dataset } from '@/types';
 
 export default function DatasetsPage() {
@@ -81,12 +82,24 @@ export default function DatasetsPage() {
     uploadAbortRef.current?.abort();
     uploadAbortRef.current = new AbortController();
     try {
-      const created = await datasetApi.create(formData.file, formData.name, formData.description, {
+      const token = getAccessToken();
+      if (!token) throw new Error(translations.errors.unauthorized);
+
+      const result = await multipartUploadDataset(formData.file, token, {
         signal: uploadAbortRef.current.signal,
-        onProgress: (p) => {
-          if (typeof p.percent === 'number') setUploadProgress(p.percent);
+        onProgressBytes: (uploadedBytes) => {
+          const pct = formData.file?.size ? Math.round((uploadedBytes / formData.file.size) * 100) : 0;
+          setUploadProgress(pct);
         },
       });
+
+      const created = {
+        id: String(result.dataset_id),
+        name: formData.file.name,
+        description: '-',
+        upload_date: new Date().toISOString(),
+      };
+
       const optimistic = { ...created, optimistic: true };
       setDatasets((prev) => [optimistic, ...prev.filter((d) => d.id !== created.id)]);
       setShowUploadForm(false);

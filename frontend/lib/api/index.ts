@@ -30,6 +30,111 @@ type EngineDatasetUploadResponse = {
   columns?: string[] | null;
 };
 
+type MultipartInitResponse = {
+  dataset_id: string;
+  upload_id: string;
+  part_size_bytes?: number;
+};
+
+type MultipartPresignResponse = {
+  url: string;
+};
+
+export type MultipartUploadedPart = {
+  part_number: number;
+  etag: string;
+};
+
+type MultipartCompleteRequest = {
+  upload_id: string;
+  parts: MultipartUploadedPart[];
+};
+
+export type MultipartCompleteResponse = {
+  dataset_id: string;
+  bucket?: string;
+  object_key?: string;
+  [key: string]: unknown;
+};
+
+export type SystemLogEvent = {
+  event_id: string;
+  created_at: string;
+  action: string;
+  actor_user_id?: number | null;
+  actor_username?: string | null;
+  actor_roles?: string[] | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  message?: string | null;
+  metadata?: Record<string, unknown> | null;
+  ip?: string | null;
+  user_agent?: string | null;
+  request_method?: string | null;
+  request_path?: string | null;
+  request_id?: string | null;
+};
+
+export type SystemLogsSnapshotPresence = {
+  user_id: number;
+  username?: string | null;
+  last_seen_at?: string | null;
+  is_online: boolean;
+  last_ip?: string | null;
+  last_user_agent?: string | null;
+};
+
+export type SystemLogsSnapshotUploadingDataset = {
+  dataset_id: string;
+  user_id: number;
+  username?: string | null;
+  original_filename?: string | null;
+  upload_id?: string | null;
+  upload_state?: string | null;
+  bucket?: string | null;
+  object_key?: string | null;
+};
+
+export type SystemLogsSnapshotActiveTraining = {
+  job_id: string;
+  status?: string | null;
+  strategy?: string | null;
+  dataset_id?: string | null;
+  uploader_user_id?: number | null;
+  uploader_username?: string | null;
+  original_filename?: string | null;
+  latest_progress?: Record<string, unknown> | null;
+};
+
+export type SystemLogsSnapshot = {
+  generated_at: string;
+  online_window_seconds: number;
+  presence?: SystemLogsSnapshotPresence[] | null;
+  uploading_datasets?: SystemLogsSnapshotUploadingDataset[] | null;
+  active_trainings?: SystemLogsSnapshotActiveTraining[] | null;
+};
+
+export type SystemLogsResponse = {
+  events: SystemLogEvent[];
+  snapshot?: SystemLogsSnapshot | null;
+};
+
+export type FetchSystemLogsParams = {
+  limit?: number;
+  offset?: number;
+  since?: string;
+  action?: string;
+  actor_user_id?: number;
+  include_snapshot?: boolean;
+  online_window_seconds?: number;
+  snapshot_limit?: number;
+};
+
+export const fetchSystemLogs = async (params: FetchSystemLogsParams): Promise<SystemLogsResponse> => {
+  const response = await apiClient.get<SystemLogsResponse>('/admin/system/logs', { params });
+  return response.data;
+};
+
 type DatasetCreateOptions = {
   signal?: AbortSignal;
   onProgress?: (info: {
@@ -37,6 +142,153 @@ type DatasetCreateOptions = {
     total?: number;
     percent?: number;
   }) => void;
+};
+
+type MultipartUploadOptions = {
+  signal?: AbortSignal;
+  onProgressBytes?: (uploadedBytes: number) => void;
+};
+
+const joinUrl = (base: string, path: string): string => {
+  const b = String(base || '').replace(/\/$/, '');
+  const p = String(path || '');
+  if (!b) return p;
+  if (p.startsWith('/')) return `${b}${p}`;
+  return `${b}/${p}`;
+};
+
+const fetchJson = async <T,>(
+  url: string,
+  init: RequestInit & { headers?: Record<string, string> },
+  errorLabel: string
+): Promise<T> => {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const data = (await res.json()) as unknown;
+      if (data && typeof data === 'object') {
+        const obj = data as Record<string, unknown>;
+        const maybeDetail = obj.detail ?? obj.message;
+        if (typeof maybeDetail === 'string') detail = maybeDetail;
+      }
+    } catch {
+      try {
+        detail = await res.text();
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(`${errorLabel}: ${res.status}${detail ? ` - ${detail}` : ''}`);
+  }
+  return (await res.json()) as T;
+};
+
+export const multipartUploadDataset = async (
+  file: File,
+  token: string,
+  options?: MultipartUploadOptions
+): Promise<MultipartCompleteResponse> => {
+  const baseURL = String(apiClient.defaults.baseURL || '').replace(/\/$/, '');
+  if (!baseURL) throw new Error('API base URL is not configured');
+  const t = String(token || '').trim();
+  if (!t) throw new Error('Access token is required');
+
+  const initUrl = joinUrl(
+    baseURL,
+    `/engine/datasets/upload/multipart/init?filename=${encodeURIComponent(file.name)}&content_type=${encodeURIComponent(file.type || 'text/csv')}`
+  );
+
+  const authHeaders = { Authorization: `Bearer ${t}` };
+
+  const initResp = await fetchJson<MultipartInitResponse>(
+    initUrl,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      signal: options?.signal,
+    },
+    'Multipart init failed'
+  );
+
+  const datasetId = String(initResp.dataset_id);
+  const uploadId = String(initResp.upload_id);
+  const partSize = Number.isFinite(initResp.part_size_bytes)
+    ? Math.max(5 * 1024 * 1024, Number(initResp.part_size_bytes))
+    : 16 * 1024 * 1024;
+
+  if (!datasetId || !uploadId) throw new Error('Multipart init returned invalid dataset_id/upload_id');
+
+  const totalBytes = file.size;
+  const totalParts = Math.max(1, Math.ceil(totalBytes / partSize));
+  let uploadedBytes = 0;
+  options?.onProgressBytes?.(uploadedBytes);
+
+  const parts: MultipartUploadedPart[] = [];
+
+  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+    const start = (partNumber - 1) * partSize;
+    const end = Math.min(start + partSize, totalBytes);
+    const chunk = file.slice(start, end);
+
+    const presignUrl = joinUrl(
+      baseURL,
+      `/engine/datasets/upload/multipart/presign?dataset_id=${encodeURIComponent(datasetId)}&upload_id=${encodeURIComponent(uploadId)}&part_number=${encodeURIComponent(String(partNumber))}`
+    );
+
+    const presignResp = await fetchJson<MultipartPresignResponse>(
+      presignUrl,
+      {
+        method: 'GET',
+        headers: authHeaders,
+        signal: options?.signal,
+      },
+      `Presign failed (part ${partNumber})`
+    );
+
+    const putRes = await fetch(presignResp.url, {
+      method: 'PUT',
+      body: chunk,
+      signal: options?.signal,
+    });
+
+    if (!putRes.ok) {
+      const text = await putRes.text().catch(() => '');
+      throw new Error(
+        `Part upload failed (part ${partNumber}): ${putRes.status}${text ? ` - ${text}` : ''}`
+      );
+    }
+
+    const etagRaw = putRes.headers.get('etag') || '';
+    const etag = etagRaw.replace(/^W\//, '').replace(/^"|"$/g, '').trim();
+    if (!etag) throw new Error(`Missing ETag for part ${partNumber}`);
+
+    parts.push({ part_number: partNumber, etag });
+    uploadedBytes += chunk.size;
+    options?.onProgressBytes?.(uploadedBytes);
+  }
+
+  const completeUrl = joinUrl(baseURL, `/engine/datasets/upload/multipart/complete?dataset_id=${encodeURIComponent(datasetId)}`);
+  const body: MultipartCompleteRequest = {
+    upload_id: uploadId,
+    parts: [...parts].sort((a, b) => a.part_number - b.part_number),
+  };
+
+  const completeResp = await fetchJson<MultipartCompleteResponse>(
+    completeUrl,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    },
+    'Multipart complete failed'
+  );
+
+  return completeResp;
 };
 
 type EngineDatasetPreviewResponse = {
@@ -147,7 +399,13 @@ export const authApi = {
   },
 
   register: async (data: RegisterData): Promise<User> => {
-    const response = await apiClient.post('/auth/register', data);
+    const payload = {
+      email: data.email,
+      username: data.username,
+      cellphone: data.cellphone,
+      password: data.password,
+    };
+    const response = await apiClient.post('/auth/register', payload);
     return response.data;
   },
 
@@ -188,14 +446,12 @@ export const datasetApi = {
   ): Promise<Dataset> => {
     void _name;
     void _description;
-    const bytes = await file.arrayBuffer();
-
     const response = await apiClient.post<EngineDatasetUploadResponse>(
       `/engine/datasets/upload?filename=${encodeURIComponent(file.name)}`,
-      bytes,
+      file,
       {
         headers: {
-          'Content-Type': 'text/csv',
+          'Content-Type': file.type || 'text/csv',
         },
         signal: options?.signal,
         onUploadProgress: (evt: AxiosProgressEvent) => {

@@ -16,6 +16,7 @@ export const Navbar = () => {
     { href: '/jobs', label: translations.nav.jobs, adminOnly: false },
     { href: '/models', label: translations.nav.models, adminOnly: false },
     { href: '/recommendations', label: translations.nav.recommendations, adminOnly: false },
+    { href: '/system-logs', label: translations.nav.systemLogs, adminOnly: true },
   ];
 
   return (

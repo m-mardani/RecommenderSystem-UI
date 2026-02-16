@@ -10,6 +10,7 @@ import { getApiErrorDetail } from '@/lib/utils/apiError';
 export default function RegisterPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [cellphone, setCellphone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,7 +29,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register({ username, email, password });
+      await register({ username, email, cellphone, password });
     } catch (err: unknown) {
       setError(getApiErrorDetail(err) || translations.auth.registerError);
     } finally {
@@ -80,6 +81,22 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="cellphone" className="block text-sm font-medium text-gray-700 mb-2">
+              {translations.auth.cellphone}
+            </label>
+            <input
+              type="tel"
+              id="cellphone"
+              value={cellphone}
+              onChange={(e) => setCellphone(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+              inputMode="tel"
+              autoComplete="tel"
             />
           </div>
 

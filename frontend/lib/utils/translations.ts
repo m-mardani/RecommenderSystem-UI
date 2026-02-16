@@ -32,6 +32,7 @@ export const translations = {
     jobs: 'پایش کارها',
     models: 'مدل‌ها',
     recommendations: 'توصیه‌ها',
+    systemLogs: 'لاگ‌های سیستم',
     logout: 'خروج',
   },
 
@@ -41,6 +42,7 @@ export const translations = {
     register: 'ثبت‌نام',
     username: 'نام کاربری',
     email: 'ایمیل',
+    cellphone: 'شماره موبایل',
     password: 'رمز عبور',
     confirmPassword: 'تأیید رمز عبور',
     forgotPassword: 'فراموشی رمز عبور',
