@@ -32,6 +32,7 @@ export const translations = {
     jobs: 'پایش کارها',
     models: 'مدل‌ها',
     recommendations: 'توصیه‌ها',
+    prediction: 'پیش بینی',
     systemLogs: 'لاگ‌های سیستم',
     logout: 'خروج',
   },
@@ -72,6 +73,10 @@ export const translations = {
     startTraining: 'شروع آموزش',
     viewModels: 'مشاهده مدل‌ها',
     getRecommendations: 'دریافت توصیه',
+    trainingInProgressTitle: 'آموزش مدل در حال اجرا است',
+    trainingInProgressText: 'شما یک آموزش فعال دارید. تا پایان آن، امکان شروع آموزش جدید وجود ندارد.',
+    activeTrainingsCount: 'تعداد آموزش‌های فعال',
+    viewTrainingJobs: 'مشاهده پایش کارها',
   },
 
   // Datasets

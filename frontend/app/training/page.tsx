@@ -63,10 +63,12 @@ export default function TrainingPage() {
 
     try {
       await trainingApi.trainAuto(formData.datasetId);
+      setHasActiveTraining(true);
       alert(translations.training.startSuccess);
       setFormData({ datasetId: '' });
     } catch (err: unknown) {
       alert(getApiErrorDetail(err) || translations.training.startError);
+      void refreshActiveTrainingState();
     } finally {
       setSubmitting(false);
     }
@@ -83,10 +85,12 @@ export default function TrainingPage() {
 
     try {
       await trainingApi.trainEngine(formData.datasetId);
+      setHasActiveTraining(true);
       alert(translations.training.startSuccess);
       setFormData({ datasetId: '' });
     } catch (err: unknown) {
       alert(getApiErrorDetail(err) || translations.training.startError);
+      void refreshActiveTrainingState();
     } finally {
       setSubmitting(false);
     }

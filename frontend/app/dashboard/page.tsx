@@ -60,6 +60,28 @@ export default function DashboardPage() {
             <LoadingSpinner />
           ) : (
             <>
+              {stats.activeJobs > 0 && (
+                <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold text-yellow-800 mb-1">
+                        {translations.dashboard.trainingInProgressTitle}
+                      </p>
+                      <p className="text-sm text-yellow-700">{translations.dashboard.trainingInProgressText}</p>
+                      <p className="text-sm text-yellow-800 mt-1">
+                        {translations.dashboard.activeTrainingsCount}: {stats.activeJobs}
+                      </p>
+                    </div>
+                    <Link
+                      href="/jobs"
+                      className="inline-flex items-center bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                    >
+                      {translations.dashboard.viewTrainingJobs}
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {/* Stats Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow-md">

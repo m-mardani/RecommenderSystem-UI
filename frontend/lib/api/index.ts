@@ -1,4 +1,4 @@
-import { apiClient, setTokens, clearTokens } from './client';
+import { apiClient, setTokens, clearTokens, getAccessToken } from './client';
 import type { AxiosProgressEvent } from 'axios';
 import {
   LoginCredentials,
@@ -345,7 +345,68 @@ type EngineRecommendResponse = {
   }>;
 };
 
+export type PredictionRecommendation = {
+  item_id: number;
+  score: number;
+  rank?: number;
+  strategy?: string;
+  explanation?: Record<string, unknown>;
+};
+
+export type PredictionResponse = {
+  job_id: string;
+  dataset_id?: string;
+  strategy?: string;
+  required_fields?: string[];
+  input_sample?: Record<string, unknown>;
+  recommendations?: PredictionRecommendation[];
+};
+
+type PredictionRequest = {
+  job_id: string;
+  n: number;
+  userId: string;
+  movieId?: string;
+  rating?: string;
+  timestamp?: string;
+  temporalFeatures?: string;
+  spatialFeatures?: string;
+  environmentalFeatures?: string;
+  itemFeatures?: string;
+};
+
 const TRAINING_JOB_IDS_STORAGE_KEY = 'rs_training_job_ids';
+
+const base64UrlDecode = (value: string): string => {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
+};
+
+const getTrackedJobStorageSuffix = (): string => {
+  if (typeof window === 'undefined') return 'anonymous';
+  const token = getAccessToken();
+  if (!token) return 'anonymous';
+
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return 'anonymous';
+    const payloadRaw = base64UrlDecode(parts[1]);
+    const payload = JSON.parse(payloadRaw) as Record<string, unknown>;
+    const subject = payload.sub;
+    if (typeof subject === 'string' && subject.trim()) {
+      return subject.trim();
+    }
+  } catch {
+    // ignore
+  }
+
+  return 'anonymous';
+};
+
+const getTrackedJobStorageKey = (): string => {
+  return `${TRAINING_JOB_IDS_STORAGE_KEY}:${getTrackedJobStorageSuffix()}`;
+};
 
 const normalizeJobStatus = (status: unknown): string => {
   const s = String(status ?? '').trim().toLowerCase();
@@ -360,7 +421,8 @@ const normalizeJobStatus = (status: unknown): string => {
 const readTrackedJobIds = (): string[] => {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(TRAINING_JOB_IDS_STORAGE_KEY);
+    const key = getTrackedJobStorageKey();
+    const raw = window.localStorage.getItem(key) ?? window.localStorage.getItem(TRAINING_JOB_IDS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -373,7 +435,7 @@ const readTrackedJobIds = (): string[] => {
 const writeTrackedJobIds = (ids: string[]) => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(TRAINING_JOB_IDS_STORAGE_KEY, JSON.stringify(ids));
+    window.localStorage.setItem(getTrackedJobStorageKey(), JSON.stringify(ids));
   } catch {
     // ignore
   }
@@ -500,9 +562,11 @@ export const trainingApi = {
     });
 
     const r = response.data;
-    if (r?.job_id) trackJobId(String(r.job_id));
+    const jobId = String(r?.job_id || '').trim();
+    if (!jobId) throw new Error('Training started but no job_id was returned by server.');
+    trackJobId(jobId);
     return {
-      id: String(r.job_id),
+      id: jobId,
       dataset_id: String(datasetId),
       status: normalizeJobStatus(r.result?.status || 'queued'),
       created_at: new Date().toISOString(),
@@ -517,9 +581,11 @@ export const trainingApi = {
     });
 
     const r = response.data;
-    if (r?.job_id) trackJobId(String(r.job_id));
+    const jobId = String(r?.job_id || '').trim();
+    if (!jobId) throw new Error('Training started but no job_id was returned by server.');
+    trackJobId(jobId);
     return {
-      id: String(r.job_id),
+      id: jobId,
       dataset_id: String(datasetId),
       status: normalizeJobStatus(r.result?.status || 'queued'),
       created_at: new Date().toISOString(),
@@ -546,13 +612,12 @@ export const trainingApi = {
       completed_at: m.completed_at ? String(m.completed_at) : undefined,
     }));
 
-    // Also include any jobs the user started from the UI (so running jobs show up).
+    // Also include and revalidate jobs the user started from the UI (so running jobs stay accurate).
     const trackedIds = readTrackedJobIds();
-    const existingIds = new Set(fromModels.map((j) => j.id));
-    const missingIds = trackedIds.filter((id) => !existingIds.has(id)).slice(0, 20);
+    const idsToProbe = trackedIds.slice(0, 20);
 
     const extraJobs = await Promise.all(
-      missingIds.map(async (id) => {
+      idsToProbe.map(async (id) => {
         try {
           return await trainingApi.getJobById(id);
         } catch {
@@ -561,17 +626,38 @@ export const trainingApi = {
       })
     );
 
-    // Prune tracked ids that are no longer active.
     const resolvedExtras = extraJobs.filter(Boolean) as TrainingJob[];
+    const resolvedExtraIds = new Set(resolvedExtras.map((j) => j.id));
+    const unresolvedTrackedIds = idsToProbe.filter((id) => !resolvedExtraIds.has(id));
+
+    const pendingFromTracked: TrainingJob[] = unresolvedTrackedIds.map((id) => ({
+      id,
+      status: 'pending',
+      created_at: undefined,
+    }));
+
+    const byId = new Map<string, TrainingJob>();
+    for (const job of fromModels) {
+      byId.set(job.id, job);
+    }
+    for (const job of resolvedExtras) {
+      byId.set(job.id, job);
+    }
+    for (const job of pendingFromTracked) {
+      if (!byId.has(job.id)) byId.set(job.id, job);
+    }
+
+    // Prune tracked ids that are no longer active.
     if (typeof window !== 'undefined') {
-      const stillActive = resolvedExtras
+      const mergedJobs = Array.from(byId.values());
+      const stillActive = mergedJobs
         .filter((j) => j.status === 'pending' || j.status === 'running')
         .map((j) => j.id);
-      const keep = [...stillActive, ...trackedIds.filter((id) => existingIds.has(id))].slice(0, 50);
+      const keep = [...stillActive, ...unresolvedTrackedIds].slice(0, 50);
       writeTrackedJobIds(Array.from(new Set(keep)));
     }
 
-    const merged = [...resolvedExtras, ...fromModels] as TrainingJob[];
+    const merged = Array.from(byId.values());
     return merged;
   },
 
@@ -647,6 +733,26 @@ export const recommendationApi = {
       item_id: Number(r.item_id),
       score: Number(r.score),
     }));
+  },
+  getPrediction: async (request: PredictionRequest): Promise<PredictionResponse> => {
+    const response = await apiClient.get<PredictionResponse>(
+      `/engine/jobs/${encodeURIComponent(request.job_id)}/prediction`,
+      {
+        params: {
+          n: request.n,
+          userId: request.userId,
+          movieId: request.movieId,
+          rating: request.rating,
+          timestamp: request.timestamp,
+          temporalFeatures: request.temporalFeatures,
+          spatialFeatures: request.spatialFeatures,
+          environmentalFeatures: request.environmentalFeatures,
+          itemFeatures: request.itemFeatures,
+        },
+      }
+    );
+
+    return response.data;
   },
 };
 
