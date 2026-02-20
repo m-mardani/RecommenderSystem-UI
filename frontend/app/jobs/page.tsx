@@ -14,6 +14,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const fetchJobs = useCallback(async () => {
@@ -56,8 +57,20 @@ export default function JobsPage() {
     };
   }, [fetchJobs]);
 
-  const handleCancel = async () => {
-    alert('لغو کار آموزشی در بک‌اند فعلی پشتیبانی نمی‌شود.');
+  const handleCancel = async (jobId: string) => {
+    const confirmed = window.confirm(translations.jobs.confirmCancel);
+    if (!confirmed) return;
+
+    try {
+      setCancellingJobId(jobId);
+      await trainingApi.cancelJob(jobId);
+      alert(translations.jobs.cancelSuccess);
+      await fetchJobs();
+    } catch (err: unknown) {
+      alert(getApiErrorDetail(err) || translations.jobs.cancelError);
+    } finally {
+      setCancellingJobId(null);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -68,6 +81,8 @@ export default function JobsPage() {
         return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'canceled':
+        return 'bg-gray-200 text-gray-800';
       case 'failed':
         return 'bg-red-100 text-red-800';
       default:
@@ -80,6 +95,7 @@ export default function JobsPage() {
       pending: translations.jobs.statuses.pending,
       running: translations.jobs.statuses.running,
       completed: translations.jobs.statuses.completed,
+      canceled: translations.jobs.statuses.canceled,
       failed: translations.jobs.statuses.failed,
     };
     return statusMap[status] || status;
@@ -154,10 +170,11 @@ export default function JobsPage() {
                     </div>
                     {(job.status === 'pending' || job.status === 'running') && (
                       <button
-                        onClick={handleCancel}
-                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
+                        onClick={() => void handleCancel(job.id)}
+                        disabled={cancellingJobId === job.id}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors disabled:bg-gray-400"
                       >
-                        {translations.jobs.cancel}
+                        {cancellingJobId === job.id ? translations.common.loading : translations.jobs.cancel}
                       </button>
                     )}
                   </div>

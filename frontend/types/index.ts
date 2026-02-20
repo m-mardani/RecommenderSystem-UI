@@ -49,6 +49,21 @@ export interface TrainingJob {
   error_message?: string;
 }
 
+export interface TrainingJobState {
+  job_id: string;
+  status: 'running' | 'succeeded' | 'failed' | 'canceled' | null | string;
+  progress_status: 'queued' | 'running' | 'completed' | 'failed' | null | string;
+  stage: string | null;
+  epoch?: number;
+  total_epochs?: number;
+  progress_pct?: number;
+  started_at?: string;
+  completed_at?: string;
+  duration_seconds?: number;
+  is_terminal: boolean;
+  error: string | null;
+}
+
 export interface Model {
   id: string;
   name: string;

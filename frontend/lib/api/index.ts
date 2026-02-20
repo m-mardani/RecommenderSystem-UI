@@ -10,6 +10,7 @@ import {
   Model,
   Recommendation,
   RecommendationRequest,
+  TrainingJobState,
 } from '@/types';
 
 type UploadedDatasetInfo = {
@@ -408,25 +409,160 @@ const getTrackedJobStorageKey = (): string => {
   return `${TRAINING_JOB_IDS_STORAGE_KEY}:${getTrackedJobStorageSuffix()}`;
 };
 
+const getAllTrackedJobStorageKeys = (): string[] => {
+  const keys = new Set<string>();
+  keys.add(TRAINING_JOB_IDS_STORAGE_KEY);
+  keys.add(getTrackedJobStorageKey());
+
+  if (typeof window !== 'undefined') {
+    try {
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (key && key.startsWith(`${TRAINING_JOB_IDS_STORAGE_KEY}:`)) {
+          keys.add(key);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return Array.from(keys);
+};
+
 const normalizeJobStatus = (status: unknown): string => {
   const s = String(status ?? '').trim().toLowerCase();
   if (!s) return '';
   if (['queued', 'queue', 'pending', 'pended'].includes(s)) return 'pending';
   if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(s)) return 'running';
   if (['completed', 'complete', 'done', 'succeeded', 'success', 'finished'].includes(s)) return 'completed';
+  if (['canceled', 'cancelled', 'aborted', 'stopped'].includes(s)) return 'canceled';
   if (['failed', 'failure', 'error', 'errored', 'exception'].includes(s)) return 'failed';
   return s;
+};
+
+const normalizeJobStateStatus = (status: unknown): TrainingJobState['status'] => {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(s)) return 'running';
+  if (['succeeded', 'completed', 'complete', 'done', 'success', 'finished'].includes(s)) return 'succeeded';
+  if (['failed', 'failure', 'error', 'errored', 'exception'].includes(s)) return 'failed';
+  if (['canceled', 'cancelled', 'aborted', 'stopped'].includes(s)) return 'canceled';
+  return s;
+};
+
+const normalizeProgressStatus = (status: unknown): TrainingJobState['progress_status'] => {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (['queued', 'queue', 'pending'].includes(s)) return 'queued';
+  if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(s)) return 'running';
+  if (['completed', 'complete', 'done', 'finished', 'succeeded', 'success'].includes(s)) return 'completed';
+  if (['failed', 'failure', 'error', 'errored', 'exception'].includes(s)) return 'failed';
+  return s;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+};
+
+const asStringValue = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  return undefined;
+};
+
+const asNumberValue = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+};
+
+const normalizeProgressPct = (value: unknown): number | undefined => {
+  const n = asNumberValue(value);
+  if (n === undefined) return undefined;
+  const pct = n >= 0 && n <= 1 ? n * 100 : n;
+  return Math.max(0, Math.min(100, Math.round(pct * 100) / 100));
+};
+
+const toTrainingJobState = (jobId: string, payload: unknown): TrainingJobState => {
+  const top = asRecord(payload) || {};
+  const state = asRecord(top.state) || asRecord(top.db) || top;
+  const progress = asRecord(top.progress) || asRecord(state.progress);
+
+  const rawStatus = state.status ?? top.status;
+  const status = normalizeJobStateStatus(rawStatus);
+  const progressStatus = normalizeProgressStatus(
+    state.progress_status ?? progress?.status ?? top.progress_status
+  );
+
+  const epoch =
+    asNumberValue(state.epoch) ??
+    asNumberValue(state.current_epoch) ??
+    asNumberValue(progress?.epoch) ??
+    asNumberValue(progress?.current_epoch);
+
+  const totalEpochs =
+    asNumberValue(state.total_epochs) ??
+    asNumberValue(state.num_epochs) ??
+    asNumberValue(progress?.total_epochs) ??
+    asNumberValue(progress?.num_epochs);
+
+  const progressPct =
+    normalizeProgressPct(state.progress_pct) ??
+    normalizeProgressPct(progress?.progress_pct) ??
+    normalizeProgressPct(progress?.percent) ??
+    normalizeProgressPct(progress?.progress);
+
+  const isTerminalValue = state.is_terminal ?? top.is_terminal;
+  const isTerminal =
+    typeof isTerminalValue === 'boolean'
+      ? isTerminalValue
+      : status === 'succeeded' || status === 'failed' || status === 'canceled';
+
+  return {
+    job_id: asStringValue(top.job_id) || asStringValue(state.job_id) || jobId,
+    status,
+    progress_status: progressStatus,
+    stage: asStringValue(state.stage) || asStringValue(progress?.stage) || null,
+    epoch,
+    total_epochs: totalEpochs,
+    progress_pct: progressPct,
+    started_at: asStringValue(state.started_at),
+    completed_at: asStringValue(state.completed_at),
+    duration_seconds: asNumberValue(state.duration_seconds),
+    is_terminal: isTerminal,
+    error:
+      asStringValue(state.error) ||
+      asStringValue(state.error_message) ||
+      asStringValue(top.error) ||
+      asStringValue(top.error_message) ||
+      null,
+  };
 };
 
 const readTrackedJobIds = (): string[] => {
   if (typeof window === 'undefined') return [];
   try {
-    const key = getTrackedJobStorageKey();
-    const raw = window.localStorage.getItem(key) ?? window.localStorage.getItem(TRAINING_JOB_IDS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((v) => String(v)).filter(Boolean);
+    const allIds: string[] = [];
+
+    for (const key of getAllTrackedJobStorageKeys()) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) continue;
+      for (const value of parsed) {
+        const id = String(value).trim();
+        if (id) allIds.push(id);
+      }
+    }
+
+    return Array.from(new Set(allIds));
   } catch {
     return [];
   }
@@ -435,7 +571,10 @@ const readTrackedJobIds = (): string[] => {
 const writeTrackedJobIds = (ids: string[]) => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(getTrackedJobStorageKey(), JSON.stringify(ids));
+    const normalized = Array.from(new Set(ids.map((id) => String(id).trim()).filter(Boolean))).slice(0, 50);
+    const serialized = JSON.stringify(normalized);
+    window.localStorage.setItem(getTrackedJobStorageKey(), serialized);
+    window.localStorage.setItem(TRAINING_JOB_IDS_STORAGE_KEY, serialized);
   } catch {
     // ignore
   }
@@ -554,9 +693,8 @@ export const datasetApi = {
 
 // Training APIs
 export const trainingApi = {
-  trainAuto: async (datasetId: string): Promise<TrainingJob> => {
-    // Backend supports dataset_id + num_epochs (ADMIN-only).
-    const response = await apiClient.post<EngineTrainResponse>('/engine/train/auto', {
+  trainAsync: async (datasetId: string): Promise<TrainingJob> => {
+    const response = await apiClient.post<EngineTrainResponse>('/engine/train?async=true', {
       dataset_id: datasetId,
       num_epochs: 10,
     });
@@ -568,34 +706,65 @@ export const trainingApi = {
     return {
       id: jobId,
       dataset_id: String(datasetId),
-      status: normalizeJobStatus(r.result?.status || 'queued'),
+      status: normalizeJobStatus(r.result?.status || 'running'),
       created_at: new Date().toISOString(),
     };
   },
 
-  trainEngine: async (datasetId: string): Promise<TrainingJob> => {
-    // Backend supports dataset_id + num_epochs (ADMIN-only).
-    const response = await apiClient.post<EngineTrainResponse>('/engine/train', {
-      dataset_id: datasetId,
-      num_epochs: 10,
-    });
+  trainAuto: async (datasetId: string): Promise<TrainingJob> => {
+    return trainingApi.trainAsync(datasetId);
+  },
 
-    const r = response.data;
-    const jobId = String(r?.job_id || '').trim();
-    if (!jobId) throw new Error('Training started but no job_id was returned by server.');
-    trackJobId(jobId);
-    return {
-      id: jobId,
-      dataset_id: String(datasetId),
-      status: normalizeJobStatus(r.result?.status || 'queued'),
-      created_at: new Date().toISOString(),
-    };
+  trainEngine: async (datasetId: string): Promise<TrainingJob> => {
+    return trainingApi.trainAsync(datasetId);
   },
 
   // Backward-compatible alias (older UI called this with a modelType that backend ignores).
   startTraining: async (datasetId: string, _modelType: string): Promise<TrainingJob> => {
     void _modelType;
-    return trainingApi.trainEngine(datasetId);
+    return trainingApi.trainAsync(datasetId);
+  },
+
+  getJobState: async (id: string): Promise<TrainingJobState> => {
+    const jobId = String(id || '').trim();
+    if (!jobId) throw new Error('job_id is required');
+    const response = await apiClient.get(`/engine/jobs/${encodeURIComponent(jobId)}/state`);
+    return toTrainingJobState(jobId, response.data);
+  },
+
+  getJobProgress: async (id: string): Promise<Record<string, unknown>> => {
+    const jobId = String(id || '').trim();
+    if (!jobId) throw new Error('job_id is required');
+    const response = await apiClient.get(`/engine/jobs/${encodeURIComponent(jobId)}/progress`);
+    const data = asRecord(response.data);
+    return data || {};
+  },
+
+  getLatestRunningJobFromModels: async (): Promise<TrainingJob | null> => {
+    const response = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
+    const models = response.data?.models || [];
+    if (!models.length) return null;
+
+    const getTime = (value?: string | null): number => {
+      if (!value) return 0;
+      const t = new Date(value).getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    const running = models
+      .map((m) => ({
+        id: String(m.job_id),
+        dataset_id: m.dataset_id ? String(m.dataset_id) : undefined,
+        model_type: m.strategy ? String(m.strategy) : undefined,
+        status: normalizeJobStatus(m.status || ''),
+        created_at: String(m.started_at || m.completed_at || ''),
+        started_at: m.started_at ? String(m.started_at) : undefined,
+        completed_at: m.completed_at ? String(m.completed_at) : undefined,
+      }))
+      .filter((m) => m.status === 'running')
+      .sort((a, b) => getTime(b.started_at || b.created_at) - getTime(a.started_at || a.created_at));
+
+    return running[0] || null;
   },
 
   getJobs: async (): Promise<TrainingJob[]> => {
@@ -673,8 +842,39 @@ export const trainingApi = {
     };
   },
 
-  cancelJob: async (): Promise<void> => {
-    throw new Error('Cancel job is not supported by the backend API.');
+  cancelJob: async (jobId: string): Promise<void> => {
+    const id = String(jobId || '').trim();
+    if (!id) throw new Error('job_id is required');
+
+    const encodedId = encodeURIComponent(id);
+    const attempts: Array<() => Promise<unknown>> = [
+      () => apiClient.post(`/engine/jobs/${encodedId}/cancel`),
+      () => apiClient.post(`/engine/jobs/${encodedId}/cancel/`),
+      () => apiClient.post(`/training/jobs/${encodedId}/cancel`),
+      () => apiClient.post(`/training/jobs/${encodedId}/cancel/`),
+      () => apiClient.delete(`/engine/jobs/${encodedId}`),
+    ];
+
+    let lastError: unknown = null;
+    for (const attempt of attempts) {
+      try {
+        await attempt();
+        return;
+      } catch (err: unknown) {
+        const statusCode =
+          typeof err === 'object' && err && 'response' in err
+            ? ((err as { response?: { status?: number } }).response?.status ?? 0)
+            : 0;
+
+        // Try next endpoint only when route is missing/method mismatch.
+        if (![404, 405].includes(statusCode)) {
+          throw err;
+        }
+        lastError = err;
+      }
+    }
+
+    throw lastError || new Error('Cancel job endpoint is not available.');
   },
 };
 

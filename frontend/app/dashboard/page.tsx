@@ -1,13 +1,40 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navbar } from '@/components/common/Navbar';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { translations } from '@/lib/utils/translations';
 import { datasetApi, trainingApi, modelApi } from '@/lib/api';
+import { getAccessToken } from '@/lib/api/client';
+import { TrainingJobState } from '@/types';
+
+const POLL_MS = 5000;
+
+const decodeTokenSubject = (): string => {
+  if (typeof window === 'undefined') return 'anonymous';
+  const token = getAccessToken();
+  if (!token) return 'anonymous';
+
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return 'anonymous';
+    const payloadRaw = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadRaw + '='.repeat((4 - (payloadRaw.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
+    const subject = payload.sub;
+    if (typeof subject === 'string' && subject.trim()) return subject.trim();
+  } catch {
+    // ignore
+  }
+
+  return 'anonymous';
+};
+
+const getTrainingStorageKey = (): string => `training:lastJobId:${decodeTokenSubject()}`;
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -18,12 +45,10 @@ export default function DashboardPage() {
     completedJobs: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [latestTrainingState, setLatestTrainingState] = useState<TrainingJobState | null>(null);
+  const [latestTrainingMessage, setLatestTrainingMessage] = useState('');
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const [datasets, jobs, models] = await Promise.all([
         datasetApi.getAll(),
@@ -42,7 +67,114 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const readPersistedJobId = useCallback((): string | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const id = String(window.localStorage.getItem(getTrainingStorageKey()) || '').trim();
+      return id || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const writePersistedJobId = useCallback((jobId: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(getTrainingStorageKey(), jobId);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const clearPersistedJobId = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(getTrainingStorageKey());
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const refreshLatestTrainingState = useCallback(async () => {
+    let jobId = readPersistedJobId();
+
+    if (!jobId) {
+      const running = await trainingApi.getLatestRunningJobFromModels();
+      if (running?.id) {
+        jobId = running.id;
+        writePersistedJobId(jobId);
+      }
+    }
+
+    if (!jobId) {
+      setLatestTrainingState(null);
+      return;
+    }
+
+    try {
+      const state = await trainingApi.getJobState(jobId);
+      setLatestTrainingState(state);
+      setLatestTrainingMessage('');
+    } catch (err: unknown) {
+      const detail = getApiErrorDetail(err) || 'خطا در دریافت وضعیت آموزش';
+      setLatestTrainingMessage(detail);
+
+      const maybeStatus = (err as { response?: { status?: number } })?.response?.status;
+      if (maybeStatus === 403 || maybeStatus === 404) {
+        clearPersistedJobId();
+        setLatestTrainingState(null);
+      }
+    }
+  }, [clearPersistedJobId, readPersistedJobId, writePersistedJobId]);
+
+  useEffect(() => {
+    void loadStats();
+    void refreshLatestTrainingState();
+  }, [loadStats, refreshLatestTrainingState]);
+
+  useEffect(() => {
+    if (!latestTrainingState || latestTrainingState.is_terminal) return;
+    const intervalId = window.setInterval(() => {
+      void refreshLatestTrainingState();
+    }, POLL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [latestTrainingState, refreshLatestTrainingState]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshLatestTrainingState();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshLatestTrainingState]);
+
+  const statusLabel = useMemo(() => {
+    const status = latestTrainingState?.status;
+    if (!status) return 'نامشخص';
+    if (status === 'running') return 'در حال آموزش';
+    if (status === 'succeeded') return 'آموزش کامل شد';
+    if (status === 'failed') return 'آموزش ناموفق بود';
+    if (status === 'canceled') return 'آموزش لغو شد';
+    return status;
+  }, [latestTrainingState?.status]);
+
+  const statusStyles = useMemo(() => {
+    const status = latestTrainingState?.status;
+    if (status === 'running') return 'bg-blue-50 border-blue-200 text-blue-800';
+    if (status === 'succeeded') return 'bg-green-50 border-green-200 text-green-800';
+    if (status === 'failed') return 'bg-red-50 border-red-200 text-red-800';
+    if (status === 'canceled') return 'bg-gray-50 border-gray-300 text-gray-800';
+    return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+  }, [latestTrainingState?.status]);
 
   return (
     <ProtectedRoute>
@@ -60,6 +192,44 @@ export default function DashboardPage() {
             <LoadingSpinner />
           ) : (
             <>
+              {latestTrainingState && (
+                <div className={`mb-6 border rounded-lg p-4 ${statusStyles}`}>
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold mb-1">آخرین وضعیت آموزش: {statusLabel}</p>
+                      <p className="text-xs">شناسه کار: {latestTrainingState.job_id}</p>
+                      {typeof latestTrainingState.progress_pct === 'number' && (
+                        <div className="mt-2">
+                          <p className="text-xs mb-1">پیشرفت: {latestTrainingState.progress_pct}%</p>
+                          <div className="w-56 bg-white/70 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full"
+                              style={{ width: `${latestTrainingState.progress_pct}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                      {typeof latestTrainingState.epoch === 'number' &&
+                        typeof latestTrainingState.total_epochs === 'number' && (
+                          <p className="text-xs mt-2">
+                            Epoch: {latestTrainingState.epoch}/{latestTrainingState.total_epochs}
+                          </p>
+                        )}
+                      {latestTrainingState.error && (
+                        <p className="text-xs mt-2 text-red-700">{latestTrainingState.error}</p>
+                      )}
+                      {latestTrainingMessage && <p className="text-xs mt-2">{latestTrainingMessage}</p>}
+                    </div>
+                    <Link
+                      href="/training"
+                      className="inline-flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                    >
+                      مشاهده جزئیات آموزش
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {stats.activeJobs > 0 && (
                 <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-center justify-between gap-4 flex-wrap">

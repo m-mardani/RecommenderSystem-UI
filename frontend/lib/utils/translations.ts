@@ -141,6 +141,7 @@ export const translations = {
       running: 'در حال اجرا',
       completed: 'تکمیل شده',
       failed: 'ناموفق',
+      canceled: 'لغو شده',
     },
     cancelSuccess: 'کار با موفقیت لغو شد',
     cancelError: 'خطا در لغو کار',
