@@ -10,6 +10,7 @@ import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { translations } from '@/lib/utils/translations';
 import { datasetApi, trainingApi, modelApi } from '@/lib/api';
 import { getAccessToken } from '@/lib/api/client';
+import { ALL_SCENARIO_TYPES, SCENARIO_CONFIGS } from '@/lib/utils/scenarios';
 import { TrainingJobState } from '@/types';
 
 const POLL_MS = 5000;
@@ -178,7 +179,7 @@ export default function DashboardPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
         <Navbar />
         <div className="container mx-auto px-4 py-8">
           <div className="mb-8">
@@ -354,6 +355,34 @@ export default function DashboardPage() {
                     </svg>
                     <span className="font-medium text-gray-700">{translations.dashboard.getRecommendations}</span>
                   </Link>
+                </div>
+              </div>
+
+              {/* Supported Scenarios Strip */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <h2 className="text-xl font-bold text-gray-800">{translations.scenarios.supportedScenarios}</h2>
+                  <Link
+                    href="/scenarios"
+                    className="text-sm text-blue-600 hover:text-blue-800 transition-colors font-medium"
+                  >
+                    {translations.scenarios.viewDetails} ›
+                  </Link>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_SCENARIO_TYPES.map((type) => {
+                    const cfg = SCENARIO_CONFIGS[type];
+                    return (
+                      <Link
+                        key={type}
+                        href={`/scenarios`}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-white bg-linear-to-r ${cfg.gradient} hover:opacity-90 transition-opacity shadow-sm`}
+                      >
+                        <span>{cfg.icon}</span>
+                        <span className="font-medium">{cfg.labelFa}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             </>

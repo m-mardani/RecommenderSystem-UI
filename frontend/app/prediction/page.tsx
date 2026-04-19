@@ -239,7 +239,7 @@ export default function PredictionPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
         <Navbar />
         <div className="container mx-auto px-4 py-8 space-y-6">
           <h1 className="text-3xl font-bold text-gray-800">پیش بینی</h1>

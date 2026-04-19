@@ -170,7 +170,7 @@ export default function DatasetsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
         {uploadLoading && (
           <div className="fixed inset-0 z-50 bg-gray-900/40 backdrop-blur-[1px] flex items-center justify-center px-4">
             <div className="w-full max-w-lg bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">

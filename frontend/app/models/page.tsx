@@ -572,7 +572,7 @@ export default function ModelsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
         <Navbar />
         <div className="container mx-auto px-4 py-8">
           <div className="flex justify-between items-center mb-6">

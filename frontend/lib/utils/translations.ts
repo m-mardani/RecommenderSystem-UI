@@ -33,6 +33,7 @@ export const translations = {
     models: 'مدل‌ها',
     recommendations: 'توصیه‌ها',
     prediction: 'پیش بینی',
+    scenarios: 'سناریوها',
     systemLogs: 'لاگ‌های سیستم',
     logout: 'خروج',
   },
@@ -107,6 +108,9 @@ export const translations = {
     startNew: 'شروع آموزش جدید',
     selectDataset: 'انتخاب مجموعه داده',
     selectModel: 'انتخاب نوع مدل',
+    selectScenario: 'انتخاب سناریو',
+    scenarioHint: 'سناریو نوع داده و الگوریتم پیش‌پردازش را تعیین می‌کند.',
+    noScenario: 'بدون سناریو (پیش‌فرض)',
     trainAuto: 'آموزش خودکار',
     trainEngine: 'آموزش موتور',
     oneAtATime: 'شما در حال حاضر یک آموزش فعال دارید. لطفاً تا پایان آن صبر کنید و سپس آموزش جدید را شروع کنید.',
@@ -121,6 +125,26 @@ export const translations = {
     startError: 'خطا در شروع آموزش',
     status: 'وضعیت',
     progress: 'پیشرفت',
+  },
+
+  // Scenarios
+  scenarios: {
+    title: 'سناریوهای توصیه',
+    subtitle: 'سیستم توصیه‌گر از ۱۲+ سناریوی مختلف پشتیبانی می‌کند.',
+    ratingType: 'نوع امتیاز',
+    explicit: 'صریح (ستاره‌دهی)',
+    implicit: 'ضمنی (کلیک / بازدید)',
+    implicitWeight: 'وزن ضمنی',
+    itemFeatures: 'ویژگی‌های آیتم',
+    textFeatures: 'ویژگی‌های متنی',
+    categoryColumn: 'ستون دسته‌بندی',
+    useCase: 'کاربرد',
+    itemType: 'نوع آیتم',
+    viewDetails: 'جزئیات',
+    backToList: 'بازگشت به لیست',
+    featureMatrix: 'ماتریس ویژگی‌ها',
+    supportedScenarios: 'سناریوهای پشتیبانی شده',
+    startTrainingWith: 'شروع آموزش با این سناریو',
   },
 
   // Jobs
@@ -176,7 +200,9 @@ export const translations = {
     getRecommendations: 'دریافت توصیه‌ها',
     results: 'نتایج توصیه',
     itemId: 'شناسه آیتم',
+    itemName: 'نام آیتم',
     score: 'امتیاز',
+    rank: 'رتبه',
     noResults: 'هیچ توصیه‌ای یافت نشد',
     success: 'توصیه‌ها با موفقیت دریافت شدند',
     error: 'خطا در دریافت توصیه‌ها',
@@ -199,3 +225,4 @@ export const translations = {
 };
 
 export type TranslationKey = typeof translations;
+

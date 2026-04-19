@@ -1,113 +1,118 @@
 'use client';
 
 import axios from 'axios';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navbar } from '@/components/common/Navbar';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
+import { ScenarioSelector } from '@/components/common/ScenarioSelector';
 import { translations } from '@/lib/utils/translations';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { datasetApi, trainingApi } from '@/lib/api';
-import { getAccessToken } from '@/lib/api/client';
-import { Dataset, TrainingJobState } from '@/types';
+import { getScenarioConfig } from '@/lib/utils/scenarios';
+import {
+  Dataset,
+  ScenarioType,
+  TrainingEpochEvent,
+  TrainingEpochsResponse,
+  TrainingProgressStatus,
+} from '@/types';
 
-type LoadStateReason = 'mount' | 'poll' | 'focus' | 'start';
+const ACTIVE_JOB_STORAGE_KEY = 'training.activeJobId';
+const LAST_NUM_EPOCHS_STORAGE_KEY = 'training.lastNumEpochs';
+const POLL_BASE_MS = 1500;
+const POLL_MAX_MS = 10000;
+const DEFAULT_NUM_EPOCHS = 20;
 
-const POLL_BASE_MS = 3000;
-const POLL_MAX_MS = 15000;
+const normalizeStatus = (value: unknown): TrainingProgressStatus | null => {
+  const status = String(value ?? '').trim().toLowerCase();
+  if (!status) return null;
+  if (['queued', 'queue', 'pending', 'pended'].includes(status)) return 'queued';
+  if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(status)) return 'running';
+  if (['completed', 'complete', 'done', 'succeeded', 'success', 'finished'].includes(status)) return 'completed';
+  if (['failed', 'failure', 'error', 'errored', 'exception'].includes(status)) return 'failed';
+  return null;
+};
 
-const decodeTokenSubject = (): string => {
-  if (typeof window === 'undefined') return 'anonymous';
-  const token = getAccessToken();
-  if (!token) return 'anonymous';
+const statusLabelMap: Record<TrainingProgressStatus, string> = {
+  queued: 'Queued',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+};
 
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return 'anonymous';
-    const payloadRaw = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = payloadRaw + '='.repeat((4 - (payloadRaw.length % 4)) % 4);
-    const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
-    const subject = payload.sub;
-    if (typeof subject === 'string' && subject.trim()) return subject.trim();
-  } catch {
-    // ignore
+const statusClassMap: Record<TrainingProgressStatus, string> = {
+  queued: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  running: 'bg-blue-100 text-blue-800 border-blue-200',
+  completed: 'bg-green-100 text-green-800 border-green-200',
+  failed: 'bg-red-100 text-red-800 border-red-200',
+};
+
+const clampProgress = (value: number): number => Math.max(0, Math.min(100, value));
+
+const getEpochText = (currentEpoch: number | null, totalEpochs: number | null): string => {
+  if (currentEpoch === null || totalEpochs === null) return '-';
+  return `${currentEpoch}/${totalEpochs}`;
+};
+
+const getEventTimestampText = (event: TrainingEpochEvent): string => {
+  if (event.ts === null || !Number.isFinite(event.ts)) return '-';
+  const ms = event.ts < 1_000_000_000_000 ? event.ts * 1000 : event.ts;
+  return new Date(ms).toLocaleString('fa-IR');
+};
+
+const getLatestEventError = (events: TrainingEpochEvent[]): string | null => {
+  for (const event of events) {
+    if (event.error) return event.error;
+    if (event.message) return event.message;
+    const metricError = event.metrics?.error;
+    if (typeof metricError === 'string' && metricError.trim()) return metricError.trim();
   }
-
-  return 'anonymous';
+  return null;
 };
-
-const buildStorageKey = (): string => `training:lastJobId:${decodeTokenSubject()}`;
-
-const toNumber = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
-  }
-  return undefined;
-};
-
-const normalizePct = (value: unknown): number | undefined => {
-  const n = toNumber(value);
-  if (n === undefined) return undefined;
-  const pct = n >= 0 && n <= 1 ? n * 100 : n;
-  return Math.max(0, Math.min(100, Math.round(pct * 100) / 100));
-};
-
-const readProgressPatch = (raw: unknown): Partial<TrainingJobState> => {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const record = raw as Record<string, unknown>;
-
-  return {
-    progress_status: typeof record.status === 'string' ? record.status.toLowerCase() : undefined,
-    stage: typeof record.stage === 'string' ? record.stage : undefined,
-    epoch: toNumber(record.epoch) ?? toNumber(record.current_epoch),
-    total_epochs: toNumber(record.total_epochs) ?? toNumber(record.num_epochs),
-    progress_pct:
-      normalizePct(record.progress_pct) ?? normalizePct(record.percent) ?? normalizePct(record.progress),
-  };
-};
-
-const emptyState = (jobId: string): TrainingJobState => ({
-  job_id: jobId,
-  status: null,
-  progress_status: null,
-  stage: null,
-  epoch: undefined,
-  total_epochs: undefined,
-  progress_pct: undefined,
-  started_at: undefined,
-  completed_at: undefined,
-  duration_seconds: undefined,
-  is_terminal: false,
-  error: null,
-});
 
 export default function TrainingPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadingDatasets, setLoadingDatasets] = useState(true);
+  const [datasetError, setDatasetError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const [persistedJobId, setPersistedJobId] = useState<string | null>(null);
-  const [trainingState, setTrainingState] = useState<TrainingJobState | null>(null);
-  const [stateMessage, setStateMessage] = useState('');
-  const [pollDelayMs, setPollDelayMs] = useState(POLL_BASE_MS);
+  const [selectedDatasetId, setSelectedDatasetId] = useState('');
+  const [selectedScenario, setSelectedScenario] = useState<ScenarioType | ''>('');
+  const [numEpochsInput, setNumEpochsInput] = useState(String(DEFAULT_NUM_EPOCHS));
+  const [activeJobNumEpochs, setActiveJobNumEpochs] = useState<number | null>(null);
+  const [activeJobScenario, setActiveJobScenario] = useState<ScenarioType | null>(null);
 
-  const [formData, setFormData] = useState({
-    datasetId: '',
-  });
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [status, setStatus] = useState<TrainingProgressStatus | null>(null);
+  const [stage, setStage] = useState<string | null>(null);
+  const [currentEpoch, setCurrentEpoch] = useState<number | null>(null);
+  const [totalEpochs, setTotalEpochs] = useState<number | null>(null);
+  const [progressPct, setProgressPct] = useState(0);
+  const [events, setEvents] = useState<TrainingEpochEvent[]>([]);
+  const [totalEvents, setTotalEvents] = useState(0);
+  const [isPolling, setIsPolling] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasFirstPollResponse, setHasFirstPollResponse] = useState(false);
 
-  const isActiveTraining = Boolean(
-    persistedJobId && trainingState && !trainingState.is_terminal && trainingState.status !== 'failed'
-  );
+  const pollTimeoutRef = useRef<number | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+  const requestTokenRef = useRef(0);
+  const backoffMsRef = useRef(POLL_BASE_MS);
+
+  const clearPollTimeout = useCallback(() => {
+    if (pollTimeoutRef.current !== null) {
+      window.clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
 
   const readPersistedJobId = useCallback((): string | null => {
     if (typeof window === 'undefined') return null;
     try {
-      const value = window.localStorage.getItem(buildStorageKey());
-      const id = String(value || '').trim();
+      const raw = window.localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+      const id = String(raw || '').trim();
       return id || null;
     } catch {
       return null;
@@ -117,7 +122,7 @@ export default function TrainingPage() {
   const writePersistedJobId = useCallback((jobId: string) => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(buildStorageKey(), jobId);
+      window.localStorage.setItem(ACTIVE_JOB_STORAGE_KEY, jobId);
     } catch {
       // ignore
     }
@@ -126,272 +131,458 @@ export default function TrainingPage() {
   const clearPersistedJobId = useCallback(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.removeItem(buildStorageKey());
+      window.localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
     } catch {
       // ignore
     }
   }, []);
 
-  const loadDatasets = useCallback(async () => {
+  const readPersistedNumEpochs = useCallback((): number => {
+    if (typeof window === 'undefined') return DEFAULT_NUM_EPOCHS;
     try {
-      setLoading(true);
-      const data = await datasetApi.getAll();
-      setDatasets(data);
-      setError('');
-    } catch (err: unknown) {
-      setError(getApiErrorDetail(err) || translations.errors.generic);
-    } finally {
-      setLoading(false);
+      const raw = window.localStorage.getItem(LAST_NUM_EPOCHS_STORAGE_KEY);
+      if (!raw) return DEFAULT_NUM_EPOCHS;
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed)) return DEFAULT_NUM_EPOCHS;
+      return Math.max(1, Math.min(1000, parsed));
+    } catch {
+      return DEFAULT_NUM_EPOCHS;
     }
   }, []);
 
-  const loadJobState = useCallback(
-    async (jobId: string, reason: LoadStateReason): Promise<void> => {
-      try {
-        const state = await trainingApi.getJobState(jobId);
-        let nextState = state;
+  const writePersistedNumEpochs = useCallback((value: number) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(LAST_NUM_EPOCHS_STORAGE_KEY, String(value));
+    } catch {
+      // ignore
+    }
+  }, []);
 
-        try {
-          const progress = await trainingApi.getJobProgress(jobId);
-          nextState = {
-            ...nextState,
-            ...readProgressPatch(progress),
-            progress_status:
-              nextState.progress_status ?? readProgressPatch(progress).progress_status ?? null,
-            stage: nextState.stage ?? readProgressPatch(progress).stage ?? null,
-            epoch: nextState.epoch ?? readProgressPatch(progress).epoch,
-            total_epochs: nextState.total_epochs ?? readProgressPatch(progress).total_epochs,
-            progress_pct: nextState.progress_pct ?? readProgressPatch(progress).progress_pct,
-          };
-        } catch {
-          // optional endpoint; ignore failures
-        }
+  const applySnapshot = useCallback(
+    (jobId: string, snapshot: TrainingEpochsResponse) => {
+      if (activeJobIdRef.current !== jobId) return;
 
-        setPersistedJobId(jobId);
-        setTrainingState(nextState);
-        setStateMessage('');
-        setPollDelayMs(POLL_BASE_MS);
-      } catch (err: unknown) {
-        if (axios.isAxiosError(err)) {
-          const statusCode = err.response?.status;
+      setStatus(snapshot.status);
+      setStage(snapshot.stage);
+      setCurrentEpoch(snapshot.current_epoch);
+      setTotalEpochs(snapshot.total_epochs);
+      setProgressPct(clampProgress(snapshot.progress_pct));
+      setEvents(snapshot.events.slice(0, 100));
+      setTotalEvents(snapshot.total_events);
+      setHasFirstPollResponse(true);
 
-          if (statusCode === 403 || statusCode === 404) {
-            clearPersistedJobId();
-            setPersistedJobId(null);
-            setTrainingState(null);
-            setStateMessage('کار آموزشی یافت نشد یا دسترسی به آن ندارید.');
-            return;
-          }
-
-          if (statusCode === 401) {
-            setStateMessage('نشست شما منقضی شده است. لطفاً دوباره وارد شوید.');
-            return;
-          }
-
-          if (!err.response) {
-            setStateMessage('مشکل شبکه در دریافت وضعیت آموزش. تلاش مجدد انجام می‌شود...');
-            setPollDelayMs((prev) => Math.min(POLL_MAX_MS, Math.max(POLL_BASE_MS, prev * 2)));
-            return;
-          }
-        }
-
-        setStateMessage(getApiErrorDetail(err) || 'خطا در دریافت وضعیت آموزش');
-        if (reason === 'poll') {
-          setPollDelayMs((prev) => Math.min(POLL_MAX_MS, Math.max(POLL_BASE_MS, prev * 2)));
-        }
+      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+        clearPersistedJobId();
       }
     },
     [clearPersistedJobId]
   );
 
-  const restoreLastJob = useCallback(async () => {
-    const savedJobId = readPersistedJobId();
-    if (savedJobId) {
-      setPersistedJobId(savedJobId);
-      setTrainingState((prev) => prev || emptyState(savedJobId));
-      await loadJobState(savedJobId, 'mount');
-      return;
-    }
+  const schedulePoll = useCallback(
+    (jobId: string, delayMs: number, callback: (id: string) => void) => {
+      clearPollTimeout();
+      pollTimeoutRef.current = window.setTimeout(() => {
+        callback(jobId);
+      }, delayMs);
+    },
+    [clearPollTimeout]
+  );
 
-    try {
-      const latestRunning = await trainingApi.getLatestRunningJobFromModels();
-      if (latestRunning?.id) {
-        writePersistedJobId(latestRunning.id);
-        setPersistedJobId(latestRunning.id);
-        setTrainingState(emptyState(latestRunning.id));
-        await loadJobState(latestRunning.id, 'mount');
+  const stopPolling = useCallback(() => {
+    clearPollTimeout();
+    setIsPolling(false);
+  }, [clearPollTimeout]);
+
+  const pollEpochs = useCallback(
+    async (jobId: string) => {
+      if (!jobId || activeJobIdRef.current !== jobId) return;
+
+      setIsPolling(true);
+      const requestToken = ++requestTokenRef.current;
+
+      try {
+        const snapshot = await trainingApi.getTrainingEpochs(jobId, { tail: 100 });
+        if (activeJobIdRef.current !== jobId || requestToken !== requestTokenRef.current) return;
+
+        applySnapshot(jobId, snapshot);
+        setErrorMessage(null);
+        backoffMsRef.current = POLL_BASE_MS;
+        setIsPolling(false);
+
+        if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+          stopPolling();
+          return;
+        }
+
+        schedulePoll(jobId, POLL_BASE_MS, (id) => {
+          void pollEpochs(id);
+        });
+      } catch (err: unknown) {
+        if (activeJobIdRef.current !== jobId || requestToken !== requestTokenRef.current) return;
+
+        setIsPolling(false);
+
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          stopPolling();
+          clearPersistedJobId();
+          setActiveJobId(null);
+          setStatus(null);
+          setStage(null);
+          setCurrentEpoch(null);
+          setTotalEpochs(null);
+          setProgressPct(0);
+          setEvents([]);
+          setTotalEvents(0);
+          setHasFirstPollResponse(true);
+          setErrorMessage('No active training job');
+          return;
+        }
+
+        const nextDelay = Math.min(POLL_MAX_MS, Math.max(POLL_BASE_MS, backoffMsRef.current * 2));
+        backoffMsRef.current = nextDelay;
+        setErrorMessage(getApiErrorDetail(err) || 'Failed to fetch training progress. Retrying...');
+
+        schedulePoll(jobId, nextDelay, (id) => {
+          void pollEpochs(id);
+        });
       }
-    } catch {
-      // ignore fallback failures
+    },
+    [applySnapshot, clearPersistedJobId, schedulePoll, stopPolling]
+  );
+
+  const beginPollingJob = useCallback(
+    (jobId: string) => {
+      activeJobIdRef.current = jobId;
+      setActiveJobId(jobId);
+      setHasFirstPollResponse(false);
+      backoffMsRef.current = POLL_BASE_MS;
+      requestTokenRef.current += 1;
+      clearPollTimeout();
+      void pollEpochs(jobId);
+    },
+    [clearPollTimeout, pollEpochs]
+  );
+
+  const loadDatasets = useCallback(async () => {
+    try {
+      setLoadingDatasets(true);
+      setDatasetError('');
+      const data = await datasetApi.getAll();
+      setDatasets(data);
+    } catch (err: unknown) {
+      setDatasetError(getApiErrorDetail(err) || translations.errors.generic);
+    } finally {
+      setLoadingDatasets(false);
     }
-  }, [loadJobState, readPersistedJobId, writePersistedJobId]);
+  }, []);
 
   useEffect(() => {
     void loadDatasets();
-    void restoreLastJob();
-  }, [loadDatasets, restoreLastJob]);
 
-  useEffect(() => {
-    if (!persistedJobId || !trainingState || trainingState.is_terminal) return;
-
-    const timeoutId = window.setTimeout(() => {
-      void loadJobState(persistedJobId, 'poll');
-    }, pollDelayMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [persistedJobId, trainingState, pollDelayMs, loadJobState]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && persistedJobId) {
-        void loadJobState(persistedJobId, 'focus');
+    // Read ?scenario= URL param to pre-fill the selector when navigated from Scenarios page
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const scenarioParam = params.get('scenario');
+      if (scenarioParam) {
+        setSelectedScenario(scenarioParam as ScenarioType);
       }
-    };
+    }
 
-    document.addEventListener('visibilitychange', onVisible);
+    const persistedEpochs = readPersistedNumEpochs();
+    setNumEpochsInput(String(persistedEpochs));
+
+    const savedJobId = readPersistedJobId();
+    if (savedJobId) {
+      beginPollingJob(savedJobId);
+    } else {
+      setHasFirstPollResponse(true);
+    }
+
     return () => {
-      document.removeEventListener('visibilitychange', onVisible);
+      stopPolling();
     };
-  }, [persistedJobId, loadJobState]);
+  }, [beginPollingJob, loadDatasets, readPersistedJobId, readPersistedNumEpochs, stopPolling]);
+
+  const trimmedNumEpochsInput = String(numEpochsInput).trim();
+  const parsedNumEpochsRaw = Number.parseInt(trimmedNumEpochsInput, 10);
+  const hasNumEpochsValue = trimmedNumEpochsInput.length > 0;
+  const isIntegerEpochs = /^\d+$/.test(trimmedNumEpochsInput) && Number.isFinite(parsedNumEpochsRaw);
+  const normalizedNumEpochs = isIntegerEpochs ? parsedNumEpochsRaw : Number.NaN;
+  const isNumEpochsInRange = isIntegerEpochs && normalizedNumEpochs >= 1 && normalizedNumEpochs <= 1000;
+  const numEpochsValidationError = !hasNumEpochsValue
+    ? 'Epochs is required.'
+    : !isIntegerEpochs
+      ? 'Epochs must be an integer.'
+      : !isNumEpochsInRange
+        ? 'Epochs must be between 1 and 1000.'
+        : '';
+  const isNumEpochsValid = numEpochsValidationError.length === 0;
 
   const handleTrain = useCallback(async () => {
-    if (!formData.datasetId) return;
+    if (!selectedDatasetId || !isNumEpochsValid) return;
     setSubmitting(true);
-    setStateMessage('');
+    setErrorMessage(null);
 
     try {
-      const startedJob = await trainingApi.trainAsync(formData.datasetId);
-      writePersistedJobId(startedJob.id);
-      setPersistedJobId(startedJob.id);
-      setTrainingState(emptyState(startedJob.id));
-      await loadJobState(startedJob.id, 'start');
-      setFormData({ datasetId: '' });
+      const safeEpochs = Number.parseInt(String(numEpochsInput).trim(), 10);
+      if (!Number.isFinite(safeEpochs) || safeEpochs < 1 || safeEpochs > 1000) {
+        setErrorMessage('Invalid epochs value.');
+        return;
+      }
+
+      const started = await trainingApi.startTrainingAsync({
+        dataset_id: selectedDatasetId,
+        num_epochs: safeEpochs,
+        scenario: selectedScenario || undefined,
+      });
+
+      const nextStatus = normalizeStatus(started.result?.status) || 'queued';
+      const jobId = started.job_id;
+
+      setStatus(nextStatus);
+      setStage('scheduled');
+      setCurrentEpoch(0);
+      setTotalEpochs(safeEpochs);
+      setActiveJobNumEpochs(safeEpochs);
+      setActiveJobScenario(selectedScenario || null);
+      setProgressPct(0);
+      setEvents([]);
+      setTotalEvents(0);
+      setHasFirstPollResponse(false);
+      writePersistedJobId(jobId);
+      writePersistedNumEpochs(safeEpochs);
+      beginPollingJob(jobId);
+      setSelectedDatasetId('');
+      setSelectedScenario('');
       alert(translations.training.startSuccess);
     } catch (err: unknown) {
       alert(getApiErrorDetail(err) || translations.training.startError);
     } finally {
       setSubmitting(false);
     }
-  }, [formData.datasetId, loadJobState, writePersistedJobId]);
+  }, [
+    beginPollingJob,
+    isNumEpochsValid,
+    numEpochsInput,
+    selectedDatasetId,    selectedScenario,    writePersistedJobId,
+    writePersistedNumEpochs,
+  ]);
 
-  const statusLabel = useMemo(() => {
-    const s = trainingState?.status;
-    if (!s) return 'نامشخص';
-    if (s === 'running') return 'در حال آموزش';
-    if (s === 'succeeded') return 'آموزش کامل شد';
-    if (s === 'failed') return 'آموزش ناموفق بود';
-    if (s === 'canceled') return 'آموزش لغو شد';
-    return s;
-  }, [trainingState?.status]);
+  const isRunActive = status === 'queued' || status === 'running';
 
-  const statusColor = useMemo(() => {
-    const s = trainingState?.status;
-    if (s === 'running') return 'bg-blue-50 border-blue-200 text-blue-800';
-    if (s === 'succeeded') return 'bg-green-50 border-green-200 text-green-800';
-    if (s === 'failed') return 'bg-red-50 border-red-200 text-red-800';
-    if (s === 'canceled') return 'bg-gray-50 border-gray-300 text-gray-800';
-    return 'bg-yellow-50 border-yellow-200 text-yellow-800';
-  }, [trainingState?.status]);
+  const epochText = useMemo(() => {
+    const eventEpochText = events[0]?.epoch_text;
+    if (eventEpochText) return eventEpochText;
+    return getEpochText(currentEpoch, totalEpochs);
+  }, [currentEpoch, events, totalEpochs]);
 
-  const progressValue = trainingState?.progress_pct;
+  const failedMessage = useMemo(() => {
+    if (status !== 'failed') return null;
+    return getLatestEventError(events) || errorMessage || 'Training failed.';
+  }, [errorMessage, events, status]);
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 via-blue-50/30 to-purple-50/20">
         <Navbar />
         <div className="container mx-auto px-4 py-8">
           <h1 className="text-3xl font-bold text-gray-800 mb-6">{translations.training.title}</h1>
 
-          {(persistedJobId || trainingState) && (
-            <div className={`border rounded-lg p-4 mb-6 max-w-2xl ${statusColor}`}>
-              <p className="text-sm font-semibold mb-1">وضعیت آموزش: {statusLabel}</p>
-              <p className="text-xs opacity-90">شناسه کار: {trainingState?.job_id || persistedJobId}</p>
-
-              {typeof progressValue === 'number' && (
-                <div className="mt-3">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span>پیشرفت</span>
-                    <span>{progressValue}%</span>
-                  </div>
-                  <div className="w-full bg-white/70 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${progressValue}%` }}></div>
-                  </div>
-                </div>
-              )}
-
-              {typeof trainingState?.epoch === 'number' && typeof trainingState?.total_epochs === 'number' && (
-                <p className="text-xs mt-2">Epoch: {trainingState.epoch}/{trainingState.total_epochs}</p>
-              )}
-
-              {trainingState?.is_terminal && (
-                <span className="inline-block mt-2 text-xs px-2 py-1 rounded bg-black/10">Terminal</span>
-              )}
-
-              {trainingState?.error && (
-                <p className="text-xs mt-2 text-red-700">{trainingState.error}</p>
-              )}
-
-              {stateMessage && <p className="text-xs mt-2">{stateMessage}</p>}
-            </div>
-          )}
-
-          {loading ? (
+          {loadingDatasets ? (
             <LoadingSpinner />
-          ) : error ? (
-            <ErrorMessage
-              message={error}
-              onRetry={() => {
-                void loadDatasets();
-                if (persistedJobId) void loadJobState(persistedJobId, 'focus');
-              }}
-            />
+          ) : datasetError ? (
+            <ErrorMessage message={datasetError} onRetry={() => void loadDatasets()} />
           ) : (
-            <div className="bg-white p-8 rounded-lg shadow-md max-w-2xl">
-              <h2 className="text-xl font-bold text-gray-800 mb-6">{translations.training.startNew}</h2>
+            <div className="space-y-6">
+              <div className="bg-white p-8 rounded-lg shadow-md max-w-2xl relative overflow-hidden">
+                <h2 className="text-xl font-bold text-gray-800 mb-6">{translations.training.startNew}</h2>
 
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {translations.training.selectDataset}
-                  </label>
-                  <select
-                    value={formData.datasetId}
-                    onChange={(e) => setFormData({ ...formData, datasetId: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    required
+                <div
+                  className={`space-y-6 transition ${
+                    isRunActive ? 'blur-[2px] opacity-70 pointer-events-none select-none' : ''
+                  }`}
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {translations.training.selectDataset}
+                    </label>
+                    <select
+                      value={selectedDatasetId}
+                      onChange={(e) => setSelectedDatasetId(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">{translations.training.selectDataset}</option>
+                      {datasets.map((dataset) => (
+                        <option key={dataset.id} value={dataset.id}>
+                          {dataset.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <ScenarioSelector
+                    value={selectedScenario}
+                    onChange={setSelectedScenario}
+                    disabled={isRunActive}
+                  />
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="num_epochs">
+                      num_epochs
+                    </label>
+                    <input
+                      id="num_epochs"
+                      name="num_epochs"
+                      type="number"
+                      min={1}
+                      max={1000}
+                      step={1}
+                      required
+                      value={numEpochsInput}
+                      onChange={(e) => setNumEpochsInput(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Number of training epochs</p>
+                    {numEpochsValidationError && (
+                      <p className="text-xs text-red-600 mt-1">{numEpochsValidationError}</p>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTrain}
+                    disabled={submitting || !selectedDatasetId || isRunActive || !isNumEpochsValid}
+                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400"
                   >
-                    <option value="">{translations.training.selectDataset}</option>
-                    {datasets.map((dataset) => (
-                      <option key={dataset.id} value={dataset.id}>
-                        {dataset.name}
-                      </option>
-                    ))}
-                  </select>
+                    {submitting ? translations.common.loading : translations.training.trainEngine}
+                  </button>
                 </div>
 
-                {isActiveTraining && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <p className="text-sm text-yellow-800">{translations.training.oneAtATime}</p>
+                {isRunActive && (
+                  <div className="absolute inset-0 bg-white/35 backdrop-blur-[1px] flex items-center justify-center px-6">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-lg">
+                      <p className="text-sm text-yellow-800">{translations.training.oneAtATime}</p>
+                    </div>
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleTrain}
-                  disabled={submitting || !formData.datasetId || isActiveTraining}
-                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400"
-                >
-                  {submitting ? translations.common.loading : translations.training.trainEngine}
-                </button>
+                {datasets.length === 0 && (
+                  <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-sm text-yellow-800">
+                      هیچ مجموعه داده‌ای موجود نیست. لطفاً ابتدا یک مجموعه داده بارگذاری کنید.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {datasets.length === 0 && (
-                <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <p className="text-sm text-yellow-800">
-                    هیچ مجموعه داده‌ای موجود نیست. لطفاً ابتدا یک مجموعه داده بارگذاری کنید.
-                  </p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Training Progress</h2>
+
+                {!activeJobId ? (
+                  <p className="text-sm text-gray-600">No active training job</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="border rounded-lg p-4 bg-gray-50/70">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="text-sm text-gray-700">Job ID:</span>
+                        <span className="text-sm font-mono text-gray-900 break-all">{activeJobId}</span>
+                        {status && (
+                          <span className={`text-xs px-2 py-1 rounded border ${statusClassMap[status]}`}>
+                            {statusLabelMap[status]}
+                          </span>
+                        )}
+                        {activeJobScenario && (() => {
+                          const cfg = getScenarioConfig(activeJobScenario);
+                          return cfg ? (
+                            <span className={`text-xs px-2 py-1 rounded text-white bg-linear-to-r ${cfg.gradient}`}>
+                              {cfg.icon} {cfg.labelFa}
+                            </span>
+                          ) : null;
+                        })()}
+                        {isPolling && <span className="text-xs text-blue-600">Polling…</span>}
+                      </div>
+                      <p className="text-sm text-gray-700">
+                        Stage: <span className="font-medium">{stage || '-'}</span>
+                      </p>
+                      <p className="text-sm text-gray-700">
+                        Num Epochs:{' '}
+                        <span className="font-medium">{activeJobNumEpochs ?? totalEpochs ?? '-'}</span>
+                      </p>
+                    </div>
+
+                    {activeJobId && !hasFirstPollResponse ? (
+                      <div className="animate-pulse space-y-3">
+                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                        <div className="h-2 bg-gray-200 rounded w-full"></div>
+                        <div className="h-24 bg-gray-100 rounded"></div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="border rounded-lg p-4">
+                          <div className="flex justify-between text-sm mb-1">
+                            <span>Epoch: {epochText}</span>
+                            <span>{progressPct}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${progressPct}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {status === 'failed' && (
+                          <div className="border border-red-200 bg-red-50 text-red-700 rounded-lg p-3 text-sm">
+                            {failedMessage}
+                          </div>
+                        )}
+
+                        <div className="border rounded-lg overflow-hidden">
+                          <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-gray-800">Epoch Events</h3>
+                            <span className="text-xs text-gray-600">Total events: {totalEvents}</span>
+                          </div>
+
+                          {events.length === 0 ? (
+                            <p className="p-4 text-sm text-gray-600">Waiting for first epoch update…</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-sm">
+                                <thead className="bg-gray-50 text-gray-700">
+                                  <tr>
+                                    <th className="px-4 py-2 text-right">Epoch</th>
+                                    <th className="px-4 py-2 text-right">Train Loss</th>
+                                    <th className="px-4 py-2 text-right">Val Loss</th>
+                                    <th className="px-4 py-2 text-right">Epoch Time (s)</th>
+                                    <th className="px-4 py-2 text-right">Timestamp</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {events.slice(0, 100).map((event, index) => (
+                                    <tr key={`${event.epoch}-${event.ts ?? index}`} className="border-t">
+                                      <td className="px-4 py-2">{event.epoch_text || event.epoch}</td>
+                                      <td className="px-4 py-2">{event.train_loss ?? '-'}</td>
+                                      <td className="px-4 py-2">{event.val_loss ?? '-'}</td>
+                                      <td className="px-4 py-2">{event.epoch_time ?? '-'}</td>
+                                      <td className="px-4 py-2">{getEventTimestampText(event)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {errorMessage && status !== 'failed' && (
+                <div className="border border-yellow-200 bg-yellow-50 text-yellow-800 rounded-lg p-3 text-sm">
+                  {errorMessage}
                 </div>
               )}
             </div>

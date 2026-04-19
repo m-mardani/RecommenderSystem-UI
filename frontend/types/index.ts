@@ -64,6 +64,104 @@ export interface TrainingJobState {
   error: string | null;
 }
 
+export type TrainingProgressStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+// ─── Multi-Scenario Support ───────────────────────────────────────────────────
+
+export type ScenarioType =
+  | 'movie'
+  | 'music'
+  | 'book'
+  | 'product'
+  | 'news'
+  | 'video'
+  | 'restaurant'
+  | 'poi'
+  | 'ecommerce'
+  | 'course'
+  | 'job'
+  | 'article'
+  | 'threat_defense';
+
+export interface ScenarioConfig {
+  type: ScenarioType;
+  /** Display label (English) */
+  label: string;
+  /** Persian display label */
+  labelFa: string;
+  /** Short description (English) */
+  description: string;
+  /** Persian description */
+  descriptionFa: string;
+  /** Unicode emoji icon */
+  icon: string;
+  /** Tailwind gradient classes for the card */
+  gradient: string;
+  /** Rating type: explicit (1-5 stars) or implicit (clicks/plays/views) */
+  ratingType: 'explicit' | 'implicit';
+  /** Implicit weight column name if applicable */
+  implicitWeight?: string;
+  /** Item feature columns */
+  itemFeatureColumns: string[];
+  /** Text columns used for content-based filtering */
+  textColumns: string[];
+  /** Category / genre column */
+  categoryColumn?: string;
+  /** Human-readable item type (singular) */
+  itemTypeFa: string;
+  /** Example use-case tag */
+  useCaseFa: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface StartTrainingAsyncRequest {
+  dataset_id: string;
+  num_epochs: number;
+  /** Optional scenario type for multi-scenario training */
+  scenario?: ScenarioType;
+}
+
+export interface StartTrainingAsyncResponse {
+  job_id: string;
+  result?: {
+    status?: string;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface TrainingEpochEvent {
+  job_id: string;
+  epoch: number;
+  total_epochs: number | null;
+  train_loss: number | null;
+  val_loss: number | null;
+  epoch_time: number | null;
+  metrics: Record<string, unknown> | null;
+  ts: number | null;
+  epoch_text: string | null;
+  progress_pct: number | null;
+  error: string | null;
+  message: string | null;
+}
+
+export interface TrainingEpochsQuery {
+  tail?: number;
+  fromEpoch?: number;
+}
+
+export interface TrainingEpochsResponse {
+  job_id: string;
+  status: TrainingProgressStatus | null;
+  stage: string | null;
+  current_epoch: number | null;
+  total_epochs: number | null;
+  epoch_text: string | null;
+  progress_pct: number;
+  events: TrainingEpochEvent[];
+  total_events: number;
+}
+
 export interface Model {
   id: string;
   name: string;

@@ -11,7 +11,15 @@ import {
   Recommendation,
   RecommendationRequest,
   TrainingJobState,
+  StartTrainingAsyncRequest,
+  StartTrainingAsyncResponse,
+  TrainingEpochsQuery,
+  TrainingEpochsResponse,
+  TrainingEpochEvent,
+  TrainingProgressStatus,
+  ScenarioType,
 } from '@/types';
+import { SCENARIO_CONFIGS, ALL_SCENARIO_TYPES, getScenarioConfig } from '@/lib/utils/scenarios';
 
 type UploadedDatasetInfo = {
   dataset_id: string;
@@ -332,13 +340,6 @@ const normalizeEvaluationMetrics = (input: unknown): Record<string, unknown> | u
   return undefined;
 };
 
-type EngineTrainResponse = {
-  job_id: string;
-  result?: {
-    status?: string | null;
-  } | null;
-};
-
 type EngineRecommendResponse = {
   recommendations?: Array<{
     item_id: number | string;
@@ -488,6 +489,75 @@ const normalizeProgressPct = (value: unknown): number | undefined => {
   if (n === undefined) return undefined;
   const pct = n >= 0 && n <= 1 ? n * 100 : n;
   return Math.max(0, Math.min(100, Math.round(pct * 100) / 100));
+};
+
+const normalizeTrainingProgressStatus = (value: unknown): TrainingProgressStatus | null => {
+  const status = String(value ?? '').trim().toLowerCase();
+  if (!status) return null;
+  if (['queued', 'queue', 'pending', 'pended'].includes(status)) return 'queued';
+  if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(status)) return 'running';
+  if (['completed', 'complete', 'done', 'succeeded', 'success', 'finished'].includes(status)) return 'completed';
+  if (['failed', 'failure', 'error', 'errored', 'exception'].includes(status)) return 'failed';
+  return null;
+};
+
+const normalizeTrainingEpochEvent = (value: unknown, fallbackJobId: string): TrainingEpochEvent | null => {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const epoch = asNumberValue(record.epoch);
+  if (epoch === undefined) return null;
+
+  return {
+    job_id: asStringValue(record.job_id) || fallbackJobId,
+    epoch,
+    total_epochs: asNumberValue(record.total_epochs) ?? null,
+    train_loss: asNumberValue(record.train_loss) ?? null,
+    val_loss: asNumberValue(record.val_loss) ?? null,
+    epoch_time: asNumberValue(record.epoch_time) ?? null,
+    metrics: asRecord(record.metrics) || null,
+    ts: asNumberValue(record.ts) ?? null,
+    epoch_text: asStringValue(record.epoch_text) || null,
+    progress_pct: normalizeProgressPct(record.progress_pct) ?? null,
+    error: asStringValue(record.error) || asStringValue(record.error_message) || null,
+    message: asStringValue(record.message) || asStringValue(record.detail) || null,
+  };
+};
+
+const normalizeTrainingEpochsResponse = (
+  payload: unknown,
+  fallbackJobId: string
+): TrainingEpochsResponse => {
+  const top = asRecord(payload) || {};
+  const eventsRaw = Array.isArray(top.events) ? top.events : [];
+  const events = eventsRaw
+    .map((item) => normalizeTrainingEpochEvent(item, fallbackJobId))
+    .filter(Boolean) as TrainingEpochEvent[];
+
+  const currentEpoch = asNumberValue(top.current_epoch) ?? null;
+  const totalEpochs = asNumberValue(top.total_epochs) ?? null;
+  const progressPct = normalizeProgressPct(top.progress_pct) ?? 0;
+  const epochText =
+    asStringValue(top.epoch_text) ||
+    (currentEpoch !== null && totalEpochs !== null ? `${currentEpoch}/${totalEpochs}` : null);
+
+  return {
+    job_id: asStringValue(top.job_id) || fallbackJobId,
+    status: normalizeTrainingProgressStatus(top.status),
+    stage: asStringValue(top.stage) || null,
+    current_epoch: currentEpoch,
+    total_epochs: totalEpochs,
+    epoch_text: epochText,
+    progress_pct: progressPct,
+    events: events
+      .sort((a, b) => {
+        const epochDiff = b.epoch - a.epoch;
+        if (epochDiff !== 0) return epochDiff;
+        return (b.ts ?? 0) - (a.ts ?? 0);
+      })
+      .slice(0, 100),
+    total_events: asNumberValue(top.total_events) ?? events.length,
+  };
 };
 
 const toTrainingJobState = (jobId: string, payload: unknown): TrainingJobState => {
@@ -693,22 +763,75 @@ export const datasetApi = {
 
 // Training APIs
 export const trainingApi = {
+  startTrainingAsync: async (
+    payload: StartTrainingAsyncRequest
+  ): Promise<StartTrainingAsyncResponse> => {
+    const datasetId = String(payload?.dataset_id || '').trim();
+    if (!datasetId) throw new Error('dataset_id is required');
+
+    const requestedEpochs = asNumberValue(payload?.num_epochs);
+    const numEpochs = requestedEpochs && requestedEpochs > 0 ? Math.floor(requestedEpochs) : 20;
+
+    const requestBody: Record<string, unknown> = {
+      dataset_id: datasetId,
+      num_epochs: numEpochs,
+    };
+
+    if (payload?.scenario) {
+      requestBody.scenario = payload.scenario;
+    }
+
+    const response = await apiClient.post<StartTrainingAsyncResponse>('/engine/train?async=true', requestBody);
+
+    const data = response.data || ({} as StartTrainingAsyncResponse);
+    const jobId = String(data.job_id || '').trim();
+    if (!jobId) throw new Error('Training started but no job_id was returned by server.');
+    trackJobId(jobId);
+
+    return {
+      job_id: jobId,
+      result: data.result || null,
+    };
+  },
+
   trainAsync: async (datasetId: string): Promise<TrainingJob> => {
-    const response = await apiClient.post<EngineTrainResponse>('/engine/train?async=true', {
+    const started = await trainingApi.startTrainingAsync({
       dataset_id: datasetId,
       num_epochs: 10,
     });
 
-    const r = response.data;
-    const jobId = String(r?.job_id || '').trim();
-    if (!jobId) throw new Error('Training started but no job_id was returned by server.');
-    trackJobId(jobId);
     return {
-      id: jobId,
+      id: started.job_id,
       dataset_id: String(datasetId),
-      status: normalizeJobStatus(r.result?.status || 'running'),
+      status: normalizeJobStatus(started.result?.status || 'running'),
       created_at: new Date().toISOString(),
     };
+  },
+
+  getTrainingEpochs: async (
+    jobId: string,
+    query: TrainingEpochsQuery = {}
+  ): Promise<TrainingEpochsResponse> => {
+    const id = String(jobId || '').trim();
+    if (!id) throw new Error('job_id is required');
+
+    const tailRaw = asNumberValue(query.tail);
+    const tail = tailRaw && tailRaw > 0 ? Math.floor(tailRaw) : 100;
+
+    const params: Record<string, number> = {
+      tail,
+    };
+
+    const fromEpochRaw = asNumberValue(query.fromEpoch);
+    if (fromEpochRaw !== undefined && fromEpochRaw >= 0) {
+      params.from_epoch = Math.floor(fromEpochRaw);
+    }
+
+    const response = await apiClient.get(`/engine/train/${encodeURIComponent(id)}/epochs`, {
+      params,
+    });
+
+    return normalizeTrainingEpochsResponse(response.data, id);
   },
 
   trainAuto: async (datasetId: string): Promise<TrainingJob> => {
@@ -957,3 +1080,15 @@ export const recommendationApi = {
 };
 
 export { setTokens };
+
+// ─── Scenario API ─────────────────────────────────────────────────────────────
+// The scenario configurations are defined client-side (mirrors backend
+// scenario_configs.py) but can be augmented by backend endpoints if available.
+
+export const scenarioApi = {
+  /** Returns all available scenario configs (client-side). */
+  getAll: () => ALL_SCENARIO_TYPES.map((t) => SCENARIO_CONFIGS[t]),
+
+  /** Returns config for a specific scenario type. */
+  getConfig: (type: ScenarioType | string) => getScenarioConfig(type),
+};
