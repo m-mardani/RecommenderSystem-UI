@@ -9,7 +9,7 @@ import { translations } from '@/lib/utils/translations';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { datasetApi, multipartUploadDataset } from '@/lib/api';
 import { getAccessToken } from '@/lib/api/client';
-import { Dataset } from '@/types';
+import { Dataset, DatasetAnalysis } from '@/types';
 
 export default function DatasetsPage() {
   type DatasetRow = Dataset & { optimistic?: boolean };
@@ -31,6 +31,9 @@ export default function DatasetsPage() {
     rows: Array<Record<string, unknown>>;
     num_rows_returned: number;
   } | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [analysis, setAnalysis] = useState<DatasetAnalysis | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -134,7 +137,18 @@ export default function DatasetsPage() {
         setSelectedDatasetId(null);
         setPreview(null);
         setPreviewError('');
+        setAnalysis(null);
+        setAnalysisError('');
       }
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err) || translations.errors.generic);
+    }
+  };
+
+  const handleDownload = async (dataset: DatasetRow) => {
+    try {
+      setError('');
+      await datasetApi.download(dataset.id, dataset.name);
     } catch (err: unknown) {
       setError(getApiErrorDetail(err) || translations.errors.generic);
     }
@@ -146,12 +160,16 @@ export default function DatasetsPage() {
       setSelectedDatasetId(null);
       setPreview(null);
       setPreviewError('');
+      setAnalysis(null);
+      setAnalysisError('');
       return;
     }
 
     setSelectedDatasetId(id);
     setPreview(null);
     setPreviewError('');
+    setAnalysis(null);
+    setAnalysisError('');
     try {
       setPreviewLoading(true);
       const data = await datasetApi.getPreview(id);
@@ -168,8 +186,23 @@ export default function DatasetsPage() {
     return datasets.find((d) => d.id === selectedDatasetId) ?? null;
   };
 
+  const handleAnalyzeDataset = async () => {
+    if (!selectedDatasetId) return;
+    try {
+      setAnalysisLoading(true);
+      setAnalysisError('');
+      const result = await datasetApi.analyze(selectedDatasetId, {});
+      setAnalysis(result);
+    } catch (err: unknown) {
+      setAnalysisError(getApiErrorDetail(err) || translations.datasets.analyzeError);
+      setAnalysis(null);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
   return (
-    <ProtectedRoute>
+    <ProtectedRoute adminOnly>
       <div className="min-h-screen bg-gray-50">
         {uploadLoading && (
           <div className="fixed inset-0 z-50 bg-gray-900/40 backdrop-blur-[1px] flex items-center justify-center px-4">
@@ -320,15 +353,26 @@ export default function DatasetsPage() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{dataset.row_count || '-'}</td>
                       <td className="px-6 py-4 text-sm">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleDelete(dataset.id);
-                          }}
-                          className="text-red-600 hover:text-red-800 font-medium"
-                        >
-                          {translations.common.delete}
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDownload(dataset);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            دانلود
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDelete(dataset.id);
+                            }}
+                            className="text-red-600 hover:text-red-800 font-medium"
+                          >
+                            {translations.common.delete}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -347,16 +391,27 @@ export default function DatasetsPage() {
                         {getSelectedDataset()?.name || selectedDatasetId}
                       </p>
                     </div>
-                    <button
-                      onClick={() => {
-                        setSelectedDatasetId(null);
-                        setPreview(null);
-                        setPreviewError('');
-                      }}
-                      className="text-sm text-gray-600 hover:text-gray-900"
-                    >
-                      {translations.common.close}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => void handleAnalyzeDataset()}
+                        disabled={analysisLoading}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 disabled:text-gray-400"
+                      >
+                        {analysisLoading ? translations.datasets.analyzing : translations.datasets.analyze}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedDatasetId(null);
+                          setPreview(null);
+                          setPreviewError('');
+                          setAnalysis(null);
+                          setAnalysisError('');
+                        }}
+                        className="text-sm text-gray-600 hover:text-gray-900"
+                      >
+                        {translations.common.close}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="p-5">
@@ -384,6 +439,12 @@ export default function DatasetsPage() {
                             <strong>{translations.datasets.rows}:</strong> {preview.num_rows_returned}
                           </p>
                         </div>
+                        <p className="text-xs text-gray-500 mb-4">
+                          {translations.datasets.previewSampleNote}{' '}
+                          <span className="font-medium text-gray-700">
+                            {translations.datasets.rows}: {getSelectedDataset()?.row_count ?? '-'}
+                          </span>
+                        </p>
 
                         <div className="border border-gray-200 rounded-lg overflow-hidden">
                           <div className="max-h-[420px] overflow-auto">
@@ -416,6 +477,63 @@ export default function DatasetsPage() {
                               </tbody>
                             </table>
                           </div>
+                        </div>
+
+                        <div className="mt-6 border-t border-gray-200 pt-5">
+                          <div className="mb-3">
+                            <p className="text-sm font-semibold text-gray-800">{translations.datasets.analyzeResult}</p>
+                            <p className="text-xs text-gray-500">{translations.datasets.analyzeFirst}</p>
+                          </div>
+
+                          {analysisError ? (
+                            <ErrorMessage message={analysisError} onRetry={() => void handleAnalyzeDataset()} />
+                          ) : analysis ? (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                <p className="text-gray-700">
+                                  <strong>{translations.datasets.detectedStrategy}:</strong> {analysis.detected_strategy || '-'}
+                                </p>
+                                <p className="text-gray-700">
+                                  <strong>{translations.datasets.taskType}:</strong> {analysis.task_type || '-'}
+                                </p>
+                                <p className="text-gray-700">
+                                  <strong>{translations.datasets.confidence}:</strong> {analysis.confidence.toFixed(2)}
+                                </p>
+                                <p className="text-gray-700">
+                                  <strong>{translations.datasets.feasibleForTraining}:</strong> {analysis.feasible_for_training ? 'بله' : 'خیر'}
+                                </p>
+                              </div>
+
+                              {analysis.warnings.length > 0 ? (
+                                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                                  <p className="text-sm font-medium text-yellow-900 mb-2">{translations.datasets.warnings}</p>
+                                  <ul className="list-disc pr-5 text-sm text-yellow-800 space-y-1">
+                                    {analysis.warnings.map((warning) => (
+                                      <li key={warning}>{warning}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-gray-500">{translations.datasets.noWarnings}</p>
+                              )}
+
+                              <div>
+                                <p className="text-sm font-medium text-gray-700 mb-2">{translations.datasets.mapping}</p>
+                                <pre className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(analysis.mapping, null, 2)}
+                                </pre>
+                              </div>
+
+                              <div>
+                                <p className="text-sm font-medium text-gray-700 mb-2">{translations.datasets.trainingPayload}</p>
+                                <pre className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(analysis.training_payload, null, 2)}
+                                </pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500">{translations.datasets.analyzeFirst}</p>
+                          )}
                         </div>
                       </>
                     )}

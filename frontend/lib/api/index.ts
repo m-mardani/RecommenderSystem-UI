@@ -1,4 +1,4 @@
-import { apiClient, setTokens, clearTokens } from './client';
+import { apiClient, setTokens, clearTokens, getAccessToken } from './client';
 import type { AxiosProgressEvent } from 'axios';
 import {
   LoginCredentials,
@@ -6,10 +6,16 @@ import {
   TokenResponse,
   User,
   Dataset,
+  DatasetAnalysis,
+  DatasetAnalyzeOverrides,
   TrainingJob,
+  TrainingStartOptions,
   Model,
   Recommendation,
   RecommendationRequest,
+  ScenarioPredictionRequest,
+  ScenarioPredictionResponse,
+  ActionCandidate,
 } from '@/types';
 
 type UploadedDatasetInfo = {
@@ -38,6 +44,7 @@ type MultipartInitResponse = {
 
 type MultipartPresignResponse = {
   url: string;
+  headers?: Record<string, string>;
 };
 
 export type MultipartUploadedPart = {
@@ -248,6 +255,7 @@ export const multipartUploadDataset = async (
 
     const putRes = await fetch(presignResp.url, {
       method: 'PUT',
+      headers: presignResp.headers ?? {},
       body: chunk,
       signal: options?.signal,
     });
@@ -298,22 +306,53 @@ type EngineDatasetPreviewResponse = {
   num_rows_returned: number;
 };
 
+type EngineDatasetAnalyzeResponse = {
+  dataset_id: string;
+  columns?: string[] | null;
+  detected_strategy?: string | null;
+  task_type?: string | null;
+  confidence?: number | null;
+  warnings?: string[] | null;
+  feasible_for_training?: boolean | null;
+  num_rows_sampled?: number | null;
+  mapping?: Record<string, unknown> | null;
+  training_payload?: Record<string, unknown> | null;
+};
+
 type TrainedModelInfo = {
   job_id: string;
   status?: string | null;
   strategy?: string | null;
   experiment_name?: string | null;
+  model_dir?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  duration_seconds?: number | null;
   dataset_id?: string | null;
+  uploader_user_id?: number | null;
   uploader_username?: string | null;
   original_filename?: string | null;
   model_s3_uri?: string | null;
   evaluation_metrics?: Record<string, unknown> | null;
+  config?: Record<string, unknown> | null;
+  dataset_metadata?: Record<string, unknown> | null;
 };
 
 type TrainedModelsResponse = {
   models: TrainedModelInfo[];
+};
+
+type AvailableModelInfo = {
+  job_id: string;
+  strategy?: string | null;
+  experiment_name?: string | null;
+  completed_at?: string | null;
+  evaluation_metrics?: Record<string, unknown> | null;
+  dataset_display_name?: string | null;
+};
+
+type AvailableModelsResponse = {
+  models: AvailableModelInfo[];
 };
 
 const normalizeEvaluationMetrics = (input: unknown): Record<string, unknown> | undefined => {
@@ -335,14 +374,83 @@ type EngineTrainResponse = {
   job_id: string;
   result?: {
     status?: string | null;
+    duration_seconds?: number | null;
+    completed_at?: string | null;
   } | null;
 };
 
 type EngineRecommendResponse = {
+  job_id?: string;
   recommendations?: Array<{
     item_id: number | string;
     score: number | string;
+    rank?: number | null;
+    strategy?: string | null;
+    explanation?: Record<string, unknown> | null;
   }>;
+};
+
+type EnginePredictionResponse = {
+  job_id: string;
+  dataset_id: string;
+  strategy: string;
+  task_type?: string | null;
+  required_fields?: string[] | null;
+  input_sample?: Record<string, unknown> | null;
+  recommended_action?: string | null;
+  action_candidates?: Array<Record<string, unknown>> | null;
+  effectiveness_estimate?: number | null;
+  recommendations?: Array<{
+    item_id: number | string;
+    score: number | string;
+    rank?: number | null;
+    strategy?: string | null;
+    explanation?: Record<string, unknown> | null;
+  }> | null;
+};
+
+type ModelListScope = 'available' | 'admin';
+
+type EngineJobProgressResponse = {
+  job_id: string;
+  latest?: Record<string, unknown> | null;
+  events?: Array<Record<string, unknown>>;
+  total_events?: number;
+  eta_seconds?: number | null;
+  estimated_completion_at?: string | null;
+};
+
+type EngineJobEpochsResponse = {
+  job_id: string;
+  status?: string | null;
+  stage?: string | null;
+  current_epoch?: number | null;
+  total_epochs?: number | null;
+  epoch_text?: string | null;
+  progress_pct?: number | null;
+  eta_seconds?: number | null;
+  estimated_completion_at?: string | null;
+  events?: Array<Record<string, unknown>>;
+  total_events?: number;
+};
+
+type EngineJobStateResponse = {
+  job_id: string;
+  status?: string | null;
+  progress_status?: string | null;
+  stage?: string | null;
+  epoch?: number | null;
+  total_epochs?: number | null;
+  epoch_text?: string | null;
+  progress_pct?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_seconds?: number | null;
+  eta_seconds?: number | null;
+  estimated_completion_at?: string | null;
+  is_terminal?: boolean;
+  error?: string | null;
+  latest?: Record<string, unknown> | null;
 };
 
 const TRAINING_JOB_IDS_STORAGE_KEY = 'rs_training_job_ids';
@@ -353,6 +461,7 @@ const normalizeJobStatus = (status: unknown): string => {
   if (['queued', 'queue', 'pending', 'pended'].includes(s)) return 'pending';
   if (['running', 'in_progress', 'in-progress', 'started', 'processing'].includes(s)) return 'running';
   if (['completed', 'complete', 'done', 'succeeded', 'success', 'finished'].includes(s)) return 'completed';
+  if (['canceled', 'cancelled', 'cancel'].includes(s)) return 'canceled';
   if (['failed', 'failure', 'error', 'errored', 'exception'].includes(s)) return 'failed';
   return s;
 };
@@ -388,6 +497,283 @@ const trackJobId = (id: string) => {
   writeTrackedJobIds(next);
 };
 
+const isEndpointUnavailable = (error: unknown): boolean => {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  return status === 404 || status === 405;
+};
+
+const getErrorStatus = (error: unknown): number | undefined => {
+  return (error as { response?: { status?: number } })?.response?.status;
+};
+
+const isRedisUnavailable = (error: unknown): boolean => getErrorStatus(error) === 503;
+
+const numberOrUndefined = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
+const stringOrUndefined = (value: unknown): string | undefined => {
+  const v = String(value ?? '').trim();
+  return v || undefined;
+};
+
+const arrayOfStrings = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+};
+
+const recordOrEmpty = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+};
+
+const normalizeRecommendation = (input: {
+  item_id: string | number;
+  score: string | number;
+  rank?: number | null;
+  strategy?: string | null;
+  explanation?: Record<string, unknown> | null;
+}): Recommendation => ({
+  item_id: typeof input.item_id === 'number' ? input.item_id : String(input.item_id),
+  score: Number(input.score),
+  rank: typeof input.rank === 'number' ? input.rank : undefined,
+  strategy: input.strategy ? String(input.strategy) : undefined,
+  explanation: input.explanation ?? undefined,
+});
+
+const normalizeActionCandidates = (value: unknown): ActionCandidate[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const row = recordOrEmpty(entry);
+      const action = stringOrUndefined(row.action);
+      const score = numberOrUndefined(row.score);
+      const rank = numberOrUndefined(row.rank);
+      if (!action || score === undefined || rank === undefined) return null;
+      return {
+        action,
+        score,
+        rank,
+        support: numberOrUndefined(row.support),
+      };
+    })
+    .filter(Boolean) as ActionCandidate[];
+};
+
+const normalizeDatasetAnalysis = (input: EngineDatasetAnalyzeResponse): DatasetAnalysis => ({
+  dataset_id: String(input.dataset_id),
+  columns: arrayOfStrings(input.columns),
+  detected_strategy: String(input.detected_strategy || ''),
+  task_type: String(input.task_type || ''),
+  confidence: numberOrUndefined(input.confidence) ?? 0,
+  warnings: arrayOfStrings(input.warnings),
+  feasible_for_training: Boolean(input.feasible_for_training),
+  num_rows_sampled: numberOrUndefined(input.num_rows_sampled) ?? 0,
+  mapping: recordOrEmpty(input.mapping),
+  training_payload: recordOrEmpty(input.training_payload),
+});
+
+const normalizeTrainingJob = (
+  input: Partial<TrainingJob> & {
+    id: string;
+    status?: string;
+  }
+): TrainingJob => ({
+  id: String(input.id),
+  dataset_id: input.dataset_id ? String(input.dataset_id) : undefined,
+  model_type: input.model_type ? String(input.model_type) : undefined,
+  status: normalizeJobStatus(input.status || ''),
+  created_at: input.created_at,
+  started_at: input.started_at,
+  completed_at: input.completed_at,
+  estimated_completion_at: input.estimated_completion_at,
+  duration_seconds: input.duration_seconds,
+  eta_seconds: input.eta_seconds,
+  progress: input.progress,
+  error_message: input.error_message,
+});
+
+const mergeTrainingJob = (base: TrainingJob, patch: Partial<TrainingJob>): TrainingJob =>
+  normalizeTrainingJob({
+    ...base,
+    ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
+  });
+
+const normalizeProgressPatch = (
+  response: EngineJobProgressResponse | EngineJobEpochsResponse | EngineJobStateResponse
+): Partial<TrainingJob> => {
+  const source = response as Record<string, unknown>;
+  const latest = (source.latest && typeof source.latest === 'object' ? source.latest : null) as Record<string, unknown> | null;
+
+  return {
+    status: stringOrUndefined(source.status) || stringOrUndefined(source.progress_status),
+    progress:
+      numberOrUndefined(source.progress_pct) ??
+      numberOrUndefined(latest?.progress_pct) ??
+      numberOrUndefined(latest?.progress) ??
+      numberOrUndefined(latest?.percent),
+    started_at: stringOrUndefined(source.started_at),
+    completed_at: stringOrUndefined(source.completed_at),
+    duration_seconds: numberOrUndefined(source.duration_seconds),
+    eta_seconds: numberOrUndefined(source.eta_seconds) ?? numberOrUndefined(latest?.eta_seconds),
+    estimated_completion_at:
+      stringOrUndefined(source.estimated_completion_at) ?? stringOrUndefined(latest?.estimated_completion_at),
+    error_message: stringOrUndefined(source.error),
+  };
+};
+
+const fetchJobRuntimePatch = async (id: string): Promise<Partial<TrainingJob>> => {
+  const patches: Array<Partial<TrainingJob>> = [];
+
+  try {
+    const response = await apiClient.get<EngineJobEpochsResponse>(`/engine/train/${encodeURIComponent(id)}/epochs`);
+    patches.push(normalizeProgressPatch(response.data));
+  } catch (error) {
+    if (isRedisUnavailable(error)) {
+      const state = await apiClient.get<EngineJobStateResponse>(`/engine/jobs/${encodeURIComponent(id)}/state`);
+      return normalizeProgressPatch(state.data);
+    }
+    if (!isEndpointUnavailable(error)) throw error;
+  }
+
+  try {
+    const response = await apiClient.get<EngineJobProgressResponse>(`/engine/jobs/${encodeURIComponent(id)}/progress`);
+    patches.push(normalizeProgressPatch(response.data));
+  } catch (error) {
+    if (isRedisUnavailable(error)) {
+      const state = await apiClient.get<EngineJobStateResponse>(`/engine/jobs/${encodeURIComponent(id)}/state`);
+      return normalizeProgressPatch(state.data);
+    }
+    if (!isEndpointUnavailable(error)) throw error;
+  }
+
+  // State is the final source of truth for terminal status and self-heal reconciliation.
+  const state = await apiClient.get<EngineJobStateResponse>(`/engine/jobs/${encodeURIComponent(id)}/state`);
+  patches.push(normalizeProgressPatch(state.data));
+
+  return patches.reduce<Partial<TrainingJob>>(
+    (merged, patch) => ({
+      ...merged,
+      ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
+    }),
+    {}
+  );
+};
+
+const fetchTrainingInventory = async (): Promise<TrainedModelInfo[]> => {
+  try {
+    const response = await apiClient.get<TrainedModelsResponse>('/admin/models');
+    return response.data?.models || [];
+  } catch (error) {
+    if (!isEndpointUnavailable(error) && getErrorStatus(error) !== 403) throw error;
+  }
+
+  try {
+    const response = await apiClient.get<TrainedModelsResponse>('/engine/models');
+    return response.data?.models || [];
+  } catch (error) {
+    if (!isEndpointUnavailable(error) && getErrorStatus(error) !== 403) throw error;
+  }
+
+  const fallback = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
+  return fallback.data?.models || [];
+};
+
+const toModelName = (parts: Array<unknown>, fallback: string): string => {
+  for (const part of parts) {
+    const value = String(part ?? '').trim();
+    if (value) return value;
+  }
+  return fallback;
+};
+
+const normalizeAvailableModel = (model: AvailableModelInfo): Model => ({
+  id: String(model.job_id),
+  name: toModelName([model.experiment_name, model.dataset_display_name, model.job_id], String(model.job_id)),
+  model_type: String(model.strategy || 'engine'),
+  status: 'completed',
+  created_at: model.completed_at ? String(model.completed_at) : undefined,
+  completed_at: model.completed_at ? String(model.completed_at) : undefined,
+  dataset_display_name: model.dataset_display_name ? String(model.dataset_display_name) : undefined,
+  metrics: normalizeEvaluationMetrics(model.evaluation_metrics),
+  is_available: true,
+  can_delete: false,
+});
+
+const normalizeTrainedModel = (model: TrainedModelInfo, scope: ModelListScope): Model => {
+  const status = normalizeJobStatus(model.status || '');
+  const isAvailable = scope === 'available' ? status === 'completed' || !status : true;
+
+  return {
+    id: String(model.job_id),
+    name: toModelName(
+      [model.experiment_name, model.original_filename, model.dataset_metadata?.dataset_display_name, model.job_id],
+      String(model.job_id)
+    ),
+    model_type: String(model.strategy || 'engine'),
+    status,
+    created_at: model.started_at ? String(model.started_at) : model.completed_at ? String(model.completed_at) : undefined,
+    completed_at: model.completed_at ? String(model.completed_at) : undefined,
+    dataset_id: model.dataset_id ? String(model.dataset_id) : undefined,
+    dataset_display_name:
+      typeof model.dataset_metadata?.dataset_display_name === 'string'
+        ? model.dataset_metadata.dataset_display_name
+        : model.original_filename
+          ? String(model.original_filename)
+          : undefined,
+    uploader_username: model.uploader_username ? String(model.uploader_username) : undefined,
+    original_filename: model.original_filename ? String(model.original_filename) : undefined,
+    model_s3_uri: model.model_s3_uri ? String(model.model_s3_uri) : undefined,
+    metrics: normalizeEvaluationMetrics(model.evaluation_metrics),
+    is_available: isAvailable,
+    can_delete: scope === 'admin',
+  };
+};
+
+const fetchAvailableModels = async (): Promise<Model[]> => {
+  try {
+    const response = await apiClient.get<AvailableModelsResponse>('/models/available');
+    const models = response.data?.models || [];
+    return models.map(normalizeAvailableModel);
+  } catch (error) {
+    if (!isEndpointUnavailable(error)) throw error;
+    const fallback = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
+    const models = fallback.data?.models || [];
+    return models
+      .map((model) => normalizeTrainedModel(model, 'available'))
+      .filter((model) => model.is_available);
+  }
+};
+
+const fetchAdminModels = async (): Promise<Model[]> => {
+  try {
+    const response = await apiClient.get<TrainedModelsResponse>('/admin/models');
+    const models = response.data?.models || [];
+    return models.map((model) => normalizeTrainedModel(model, 'admin'));
+  } catch (error) {
+    if (!isEndpointUnavailable(error)) throw error;
+  }
+
+  try {
+    const response = await apiClient.get<TrainedModelsResponse>('/engine/models');
+    const models = response.data?.models || [];
+    return models.map((model) => normalizeTrainedModel(model, 'admin'));
+  } catch (error) {
+    if (!isEndpointUnavailable(error)) throw error;
+  }
+
+  const fallback = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
+  const models = fallback.data?.models || [];
+  return models.map((model) => normalizeTrainedModel(model, 'admin'));
+};
+
 // Authentication APIs
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<TokenResponse> => {
@@ -398,15 +784,9 @@ export const authApi = {
     return response.data;
   },
 
-  register: async (data: RegisterData): Promise<User> => {
-    const payload = {
-      email: data.email,
-      username: data.username,
-      cellphone: data.cellphone,
-      password: data.password,
-    };
-    const response = await apiClient.post('/auth/register', payload);
-    return response.data;
+  register: async (_data: RegisterData): Promise<User> => {
+    void _data;
+    throw new Error('Public registration is disabled. Only admins can create users.');
   },
 
   getCurrentUser: async (): Promise<User> => {
@@ -414,8 +794,15 @@ export const authApi = {
     return response.data;
   },
 
-  logout: (): void => {
-    clearTokens();
+  logout: async (): Promise<void> => {
+    const token = getAccessToken();
+    try {
+      if (token) {
+        await apiClient.post('/auth/logout', { token });
+      }
+    } finally {
+      clearTokens();
+    }
   },
 };
 
@@ -488,55 +875,101 @@ export const datasetApi = {
     );
     return response.data;
   },
+
+  analyze: async (datasetId: string, overrides: DatasetAnalyzeOverrides = {}): Promise<DatasetAnalysis> => {
+    const id = String(datasetId).trim();
+    if (!id) throw new Error('dataset_id is required');
+    const response = await apiClient.post<EngineDatasetAnalyzeResponse>(
+      `/engine/datasets/${encodeURIComponent(id)}/analyze`,
+      overrides
+    );
+    return normalizeDatasetAnalysis(response.data);
+  },
+
+  download: async (datasetId: string, suggestedFilename?: string): Promise<void> => {
+    const id = String(datasetId).trim();
+    if (!id) throw new Error('dataset_id is required');
+
+    const response = await apiClient.get(
+      `/engine/datasets/download?dataset_id=${encodeURIComponent(id)}`,
+      { responseType: 'blob' }
+    );
+
+    const blob = response.data as Blob;
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = suggestedFilename || `dataset-${id}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 // Training APIs
 export const trainingApi = {
-  trainAuto: async (datasetId: string): Promise<TrainingJob> => {
-    // Backend supports dataset_id + num_epochs (ADMIN-only).
+  trainAuto: async (datasetId: string, numEpochs: number): Promise<TrainingJob> => {
+    const normalizedEpochs = Math.trunc(numEpochs);
+    if (!Number.isFinite(normalizedEpochs) || normalizedEpochs < 1) throw new Error('num_epochs must be >= 1');
+    const epochs = normalizedEpochs;
+
     const response = await apiClient.post<EngineTrainResponse>('/engine/train/auto', {
       dataset_id: datasetId,
-      num_epochs: 10,
+      num_epochs: epochs,
     });
 
     const r = response.data;
     if (r?.job_id) trackJobId(String(r.job_id));
-    return {
+    return normalizeTrainingJob({
       id: String(r.job_id),
       dataset_id: String(datasetId),
       status: normalizeJobStatus(r.result?.status || 'queued'),
       created_at: new Date().toISOString(),
-    };
+      completed_at: r.result?.completed_at ? String(r.result.completed_at) : undefined,
+      duration_seconds: numberOrUndefined(r.result?.duration_seconds),
+    });
   },
 
-  trainEngine: async (datasetId: string): Promise<TrainingJob> => {
-    // Backend supports dataset_id + num_epochs (ADMIN-only).
+  trainEngine: async (datasetId: string, numEpochs: number, options: TrainingStartOptions = {}): Promise<TrainingJob> => {
+    const normalizedEpochs = Math.trunc(numEpochs);
+    if (!Number.isFinite(normalizedEpochs) || normalizedEpochs < 1) throw new Error('num_epochs must be >= 1');
+    const epochs = normalizedEpochs;
+
     const response = await apiClient.post<EngineTrainResponse>('/engine/train', {
       dataset_id: datasetId,
-      num_epochs: 10,
+      num_epochs: epochs,
+      strategy: stringOrUndefined(options.strategy),
+      user_column: stringOrUndefined(options.user_column),
+      item_column: stringOrUndefined(options.item_column),
+      rating_column: stringOrUndefined(options.rating_column),
+      temporal_columns: options.temporal_columns ?? [],
+      spatial_columns: options.spatial_columns ?? [],
+      environmental_columns: options.environmental_columns ?? [],
+      max_rows: numberOrUndefined(options.max_rows),
     });
 
     const r = response.data;
     if (r?.job_id) trackJobId(String(r.job_id));
-    return {
+    return normalizeTrainingJob({
       id: String(r.job_id),
       dataset_id: String(datasetId),
       status: normalizeJobStatus(r.result?.status || 'queued'),
       created_at: new Date().toISOString(),
-    };
+      completed_at: r.result?.completed_at ? String(r.result.completed_at) : undefined,
+      duration_seconds: numberOrUndefined(r.result?.duration_seconds),
+    });
   },
 
   // Backward-compatible alias (older UI called this with a modelType that backend ignores).
-  startTraining: async (datasetId: string, _modelType: string): Promise<TrainingJob> => {
+  startTraining: async (datasetId: string, _modelType: string, numEpochs = 10): Promise<TrainingJob> => {
     void _modelType;
-    return trainingApi.trainEngine(datasetId);
+    return trainingApi.trainEngine(datasetId, numEpochs);
   },
 
   getJobs: async (): Promise<TrainingJob[]> => {
-    // Backend does not expose a dedicated jobs list; models/me lists engine_jobs.
-    const response = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
-    const models = response.data?.models || [];
-    const fromModels = models.map((m) => ({
+    const models = await fetchTrainingInventory();
+    const fromModels = models.map((m) => normalizeTrainingJob({
       id: String(m.job_id),
       dataset_id: m.dataset_id ? String(m.dataset_id) : undefined,
       model_type: m.strategy ? String(m.strategy) : undefined,
@@ -544,6 +977,7 @@ export const trainingApi = {
       created_at: String(m.started_at || m.completed_at || ''),
       started_at: m.started_at ? String(m.started_at) : undefined,
       completed_at: m.completed_at ? String(m.completed_at) : undefined,
+      duration_seconds: numberOrUndefined(m.duration_seconds),
     }));
 
     // Also include any jobs the user started from the UI (so running jobs show up).
@@ -572,52 +1006,66 @@ export const trainingApi = {
     }
 
     const merged = [...resolvedExtras, ...fromModels] as TrainingJob[];
-    return merged;
+    const hydrated = await Promise.all(
+      merged.map(async (job) => {
+        try {
+          const patch = await fetchJobRuntimePatch(job.id);
+          return mergeTrainingJob(job, patch);
+        } catch {
+          return job;
+        }
+      })
+    );
+    return hydrated;
   },
 
   getJobById: async (id: string): Promise<TrainingJob> => {
     const response = await apiClient.get(`/engine/jobs/${encodeURIComponent(id)}`);
     const db = response.data?.db || {};
-    return {
+    const base = normalizeTrainingJob({
       id: String(response.data?.job_id || id),
       status: normalizeJobStatus(db.status || ''),
       created_at: db.created_at ? String(db.created_at) : undefined,
       started_at: db.started_at ? String(db.started_at) : undefined,
       completed_at: db.completed_at ? String(db.completed_at) : undefined,
-    };
+      duration_seconds: numberOrUndefined(db.duration_seconds),
+      error_message: stringOrUndefined(db.error),
+    });
+    try {
+      const patch = await fetchJobRuntimePatch(id);
+      return mergeTrainingJob(base, patch);
+    } catch {
+      return base;
+    }
   },
 
-  cancelJob: async (): Promise<void> => {
-    throw new Error('Cancel job is not supported by the backend API.');
+  cancelJob: async (jobId: string): Promise<void> => {
+    const id = String(jobId).trim();
+    if (!id) throw new Error('job_id is required');
+    await apiClient.post(`/engine/jobs/${encodeURIComponent(id)}/cancel`, {});
   },
 };
 
 // Model APIs
 export const modelApi = {
-  getAll: async (): Promise<Model[]> => {
-    const response = await apiClient.get<TrainedModelsResponse>('/engine/models/me');
-    const models = response.data?.models || [];
-    return models.map((m) => ({
-      id: String(m.job_id),
-      name: String(m.experiment_name || m.original_filename || m.job_id),
-      model_type: String(m.strategy || 'engine'),
-      created_at: m.started_at ? String(m.started_at) : undefined,
-      dataset_id: m.dataset_id ? String(m.dataset_id) : undefined,
-      uploader_username: m.uploader_username ? String(m.uploader_username) : undefined,
-      original_filename: m.original_filename ? String(m.original_filename) : undefined,
-      model_s3_uri: m.model_s3_uri ? String(m.model_s3_uri) : undefined,
-      metrics: normalizeEvaluationMetrics(m.evaluation_metrics),
-    }));
+  getAll: async (scope: ModelListScope = 'available'): Promise<Model[]> => {
+    return scope === 'admin' ? fetchAdminModels() : fetchAvailableModels();
   },
 
   getById: async (id: string): Promise<Model> => {
     const response = await apiClient.get(`/engine/jobs/${encodeURIComponent(id)}`);
     const summary = response.data?.summary || {};
+    const db = response.data?.db || {};
     return {
       id: String(response.data?.job_id || id),
       name: String(summary.experiment_name || id),
       model_type: String(summary.strategy || 'engine'),
+      status: normalizeJobStatus(db.status || summary.status || ''),
       created_at: undefined,
+      completed_at: stringOrUndefined(summary.completed_at) ?? stringOrUndefined(db.completed_at),
+      dataset_id: stringOrUndefined(summary.dataset_id) ?? stringOrUndefined(db.dataset_id),
+      task_type: stringOrUndefined(summary.task_type),
+      metrics: normalizeEvaluationMetrics(summary.evaluation_metrics),
     };
   },
 
@@ -643,10 +1091,35 @@ export const recommendationApi = {
     );
 
     const items = response.data?.recommendations || [];
-    return items.map((r) => ({
-      item_id: Number(r.item_id),
-      score: Number(r.score),
-    }));
+    return items.map(normalizeRecommendation);
+  },
+
+  predictScenario: async (request: ScenarioPredictionRequest): Promise<ScenarioPredictionResponse> => {
+    const response = await apiClient.post<EnginePredictionResponse>(
+      `/engine/jobs/${encodeURIComponent(request.job_id)}/prediction/scenario`,
+      {
+        sample: request.sample,
+        top_k: request.top_k ?? 5,
+        strategy: stringOrUndefined(request.strategy),
+        temporal_features: request.temporal_features ?? undefined,
+        spatial_features: request.spatial_features ?? undefined,
+        environmental_features: request.environmental_features ?? undefined,
+        item_features: request.item_features ?? undefined,
+      }
+    );
+
+    return {
+      job_id: String(response.data.job_id),
+      dataset_id: String(response.data.dataset_id),
+      strategy: String(response.data.strategy),
+      task_type: stringOrUndefined(response.data.task_type),
+      required_fields: arrayOfStrings(response.data.required_fields),
+      input_sample: recordOrEmpty(response.data.input_sample),
+      recommended_action: response.data.recommended_action ?? undefined,
+      action_candidates: normalizeActionCandidates(response.data.action_candidates),
+      effectiveness_estimate: numberOrUndefined(response.data.effectiveness_estimate),
+      recommendations: (response.data.recommendations ?? []).map(normalizeRecommendation),
+    };
   },
 };
 

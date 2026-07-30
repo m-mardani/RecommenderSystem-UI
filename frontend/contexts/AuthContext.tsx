@@ -10,7 +10,7 @@ interface AuthContextType {
   loading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
   isAdmin: boolean;
 }
@@ -57,17 +57,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const register = async (data: RegisterData) => {
-    try {
-      await authApi.register(data);
-      // After registration, auto-login
-      await login({ username: data.username, password: data.password });
-    } catch (error) {
-      throw error;
-    }
+    await authApi.register(data);
   };
 
-  const logout = () => {
-    authApi.logout();
+  const logout = async () => {
+    await authApi.logout();
     setUser(null);
     router.push('/login');
   };

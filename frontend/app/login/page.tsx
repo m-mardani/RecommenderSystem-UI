@@ -1,11 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/utils/translations';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
+import { AnimatedAuthBackground } from '@/components/auth/AnimatedAuthBackground';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -28,69 +27,75 @@ export default function LoginPage() {
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner message="در حال ورود..." />;
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
-      <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-blue-600 mb-2">سیستم توصیه‌گر</h1>
-          <p className="text-gray-600">لطفاً وارد حساب کاربری خود شوید</p>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-slate-950" dir="rtl">
+      <AnimatedAuthBackground />
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-            {error}
-          </div>
-        )}
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-md">
+          <section className="w-full">
+            <div className="mx-auto w-full rounded-[28px] border border-white/16 bg-white/10 p-6 shadow-[0_28px_80px_rgba(2,6,23,0.48)] backdrop-blur-2xl sm:p-8">
+              <div className="mb-8 text-center">
+                <h1 className="text-3xl font-black text-white sm:text-4xl">Recommender System Platform</h1>
+                <p className="mt-3 text-sm leading-7 text-slate-300">
+                  برای ادامه، با نام کاربری و رمز عبور خود وارد شوید.
+                </p>
+              </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-              {translations.auth.username}
-            </label>
-            <input
-              type="text"
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
+              {error && (
+                <div className="mb-5 rounded-2xl border border-rose-400/30 bg-rose-500/12 px-4 py-3 text-sm text-rose-100">
+                  {error}
+                </div>
+              )}
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-              {translations.auth.password}
-            </label>
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="username" className="mb-2 block text-sm font-medium text-slate-200">
+                    {translations.auth.username}
+                  </label>
+                  <input
+                    type="text"
+                    id="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full rounded-2xl border border-white/12 bg-white/8 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400/70 focus:bg-white/12 focus:ring-2 focus:ring-cyan-400/30"
+                    required
+                    autoComplete="username"
+                    placeholder="نام کاربری خود را وارد کنید"
+                  />
+                </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400"
-          >
-            {translations.auth.login}
-          </button>
-        </form>
+                <div>
+                  <label htmlFor="password" className="mb-2 block text-sm font-medium text-slate-200">
+                    {translations.auth.password}
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-2xl border border-white/12 bg-white/8 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400/70 focus:bg-white/12 focus:ring-2 focus:ring-cyan-400/30"
+                    required
+                    autoComplete="current-password"
+                    placeholder="رمز عبور"
+                  />
+                </div>
 
-        <div className="mt-6 text-center">
-          <p className="text-gray-600">
-            {translations.auth.dontHaveAccount}{' '}
-            <Link href="/register" className="text-blue-600 hover:underline font-medium">
-              {translations.auth.registerHere}
-            </Link>
-          </p>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-400 px-4 py-3 font-bold text-slate-950 transition hover:from-sky-400 hover:to-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? 'در حال ورود...' : translations.auth.login}
+                </button>
+              </form>
+
+              <div className="mt-6 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-4 py-4 text-sm text-amber-100">
+                <p className="font-semibold">{translations.auth.registrationDisabled}</p>
+                <p className="mt-1 leading-7">{translations.auth.registrationDisabledDescription}</p>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

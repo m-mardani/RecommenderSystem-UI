@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/common/Navbar';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
@@ -9,9 +9,11 @@ import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { translations } from '@/lib/utils/translations';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
 import { modelApi } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { Model } from '@/types';
 
 export default function ModelsPage() {
+  const { isAdmin } = useAuth();
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,19 +33,42 @@ export default function ModelsPage() {
 
   const toNumberIfFinite = (v: unknown): number | null => {
     if (typeof v === 'number') {
-      if (!Number.isFinite(v)) return null;
-      return v;
+      return Number.isFinite(v) ? v : null;
     }
 
     if (typeof v === 'string') {
       const trimmed = v.trim();
       if (!trimmed) return null;
       const n = Number(trimmed);
-      if (!Number.isFinite(n)) return null;
-      return n;
+      return Number.isFinite(n) ? n : null;
     }
 
     return null;
+  };
+
+  const formatMetricValue = (value: unknown): string => {
+    if (typeof value === 'number') return value.toFixed(4);
+    if (typeof value === 'string') return value;
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (value === null) return 'null';
+    if (value === undefined) return '-';
+
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      if ('val' in obj || 'test' in obj) {
+        const parts: string[] = [];
+        if ('val' in obj) parts.push(`val=${String(obj.val)}`);
+        if ('test' in obj) parts.push(`test=${String(obj.test)}`);
+        if (parts.length > 0) return parts.join(', ');
+      }
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    return String(value);
   };
 
   const buildMetricRows = (metrics: Record<string, unknown> | undefined): MetricRow[] => {
@@ -81,39 +106,10 @@ export default function ModelsPage() {
     return max > 0 ? max : 1;
   };
 
-  const formatMetricValue = (value: unknown): string => {
-    if (typeof value === 'number') return value.toFixed(4);
-    if (typeof value === 'string') return value;
-    if (typeof value === 'boolean') return value ? 'true' : 'false';
-    if (value === null) return 'null';
-    if (value === undefined) return '-';
-
-    if (typeof value === 'object') {
-      const obj = value as Record<string, unknown>;
-      if ('val' in obj || 'test' in obj) {
-        const parts: string[] = [];
-        if ('val' in obj) parts.push(`val=${String(obj.val)}`);
-        if ('test' in obj) parts.push(`test=${String(obj.test)}`);
-        if (parts.length > 0) return parts.join(', ');
-      }
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return String(value);
-      }
-    }
-
-    return String(value);
-  };
-
-  useEffect(() => {
-    loadModels();
-  }, []);
-
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await modelApi.getAll();
+      const data = await modelApi.getAll(isAdmin ? 'admin' : 'available');
       setModels(data);
       setError('');
     } catch (err: unknown) {
@@ -121,7 +117,11 @@ export default function ModelsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
 
   const handleDelete = async (jobId: string) => {
     try {
@@ -137,15 +137,18 @@ export default function ModelsPage() {
     router.push(`/recommendations?modelId=${encodeURIComponent(modelId)}`);
   };
 
+  const title = isAdmin ? translations.models.title : translations.models.availableTitle;
+  const emptyText = isAdmin ? translations.models.noModels : translations.models.noAvailableModels;
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="container mx-auto px-4 py-8">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-800">{translations.models.title}</h1>
+            <h1 className="text-3xl font-bold text-gray-800">{title}</h1>
             <button
-              onClick={loadModels}
+              onClick={() => void loadModels()}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
             >
               {translations.common.refresh}
@@ -158,13 +161,13 @@ export default function ModelsPage() {
             <ErrorMessage message={error} onRetry={loadModels} />
           ) : models.length === 0 ? (
             <div className="bg-white p-8 rounded-lg shadow-md text-center">
-              <p className="text-gray-600">{translations.models.noModels}</p>
+              <p className="text-gray-600">{emptyText}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {models.map((model) => (
                 <div key={model.id} className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow">
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start mb-4 gap-3">
                     <h3 className="text-lg font-bold text-gray-800">{model.name}</h3>
                     <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-medium">
                       {model.model_type}
@@ -175,13 +178,27 @@ export default function ModelsPage() {
                     <p className="text-sm text-gray-600">
                       <strong>{translations.models.modelId}:</strong> {model.id}
                     </p>
+                    {model.status && (
+                      <p className="text-sm text-gray-600">
+                        <strong>{translations.training.status}:</strong> {model.status}
+                      </p>
+                    )}
                     <p className="text-sm text-gray-600">
                       <strong>{translations.models.createdAt}:</strong>{' '}
-                      {model.created_at ? new Date(model.created_at).toLocaleString('fa-IR') : '-'}
+                      {model.completed_at || model.created_at
+                        ? new Date(model.completed_at || model.created_at || '').toLocaleString('fa-IR')
+                        : '-'}
                     </p>
-                    <p className="text-sm text-gray-600">
-                      <strong>{translations.models.trainingJob}:</strong> {model.id}
-                    </p>
+                    {model.dataset_display_name && (
+                      <p className="text-sm text-gray-600">
+                        <strong>{translations.datasets.name}:</strong> {model.dataset_display_name}
+                      </p>
+                    )}
+                    {isAdmin && model.uploader_username && (
+                      <p className="text-sm text-gray-600">
+                        <strong>Uploader:</strong> {model.uploader_username}
+                      </p>
+                    )}
                   </div>
 
                   {model.metrics && Object.keys(model.metrics).length > 0 && (
@@ -201,11 +218,11 @@ export default function ModelsPage() {
                                     {translations.models.metrics}
                                   </th>
                                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">
-                                    {translations.common.value ?? 'Value'}
+                                    {translations.common.value}
                                   </th>
                                   {hasNumeric && (
                                     <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">
-                                      Chart
+                                      {translations.common.chart}
                                     </th>
                                   )}
                                 </tr>
@@ -266,12 +283,14 @@ export default function ModelsPage() {
                     >
                       {translations.models.use}
                     </button>
-                    <button
-                      onClick={() => handleDelete(model.id)}
-                      className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
-                    >
-                      {translations.common.delete}
-                    </button>
+                    {isAdmin && model.can_delete && (
+                      <button
+                        onClick={() => void handleDelete(model.id)}
+                        className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+                      >
+                        {translations.common.delete}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navbar } from '@/components/common/Navbar';
@@ -10,7 +10,7 @@ import { translations } from '@/lib/utils/translations';
 import { datasetApi, trainingApi, modelApi } from '@/lib/api';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [stats, setStats] = useState({
     totalDatasets: 0,
     totalModels: 0,
@@ -19,16 +19,12 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const [datasets, jobs, models] = await Promise.all([
-        datasetApi.getAll(),
-        trainingApi.getJobs(),
-        modelApi.getAll(),
+        isAdmin ? datasetApi.getAll() : Promise.resolve([]),
+        isAdmin ? trainingApi.getJobs() : Promise.resolve([]),
+        modelApi.getAll(isAdmin ? 'admin' : 'available'),
       ]);
 
       setStats({
@@ -42,7 +38,11 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    void loadStats();
+  }, [loadStats]);
 
   return (
     <ProtectedRoute>
@@ -53,7 +53,9 @@ export default function DashboardPage() {
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
               {translations.dashboard.welcome}، {user?.username}!
             </h1>
-            <p className="text-gray-600">مدیریت سیستم توصیه‌گر هوشمند</p>
+            <p className="text-gray-600">
+              {isAdmin ? 'مدیریت سیستم توصیه‌گر هوشمند' : 'دسترسی به مدل‌های آماده و دریافت توصیه'}
+            </p>
           </div>
 
           {loading ? (
@@ -123,25 +125,29 @@ export default function DashboardPage() {
               <div className="bg-white p-6 rounded-lg shadow-md">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">{translations.dashboard.quickActions}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Link
-                    href="/datasets"
-                    className="flex items-center p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
-                  >
-                    <svg className="w-10 h-10 text-blue-600 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <span className="font-medium text-gray-700">{translations.dashboard.uploadDataset}</span>
-                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/datasets"
+                      className="flex items-center p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                    >
+                      <svg className="w-10 h-10 text-blue-600 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span className="font-medium text-gray-700">{translations.dashboard.uploadDataset}</span>
+                    </Link>
+                  )}
 
-                  <Link
-                    href="/training"
-                    className="flex items-center p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
-                  >
-                    <svg className="w-10 h-10 text-green-600 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-                    </svg>
-                    <span className="font-medium text-gray-700">{translations.dashboard.startTraining}</span>
-                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/training"
+                      className="flex items-center p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
+                    >
+                      <svg className="w-10 h-10 text-green-600 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+                      </svg>
+                      <span className="font-medium text-gray-700">{translations.dashboard.startTraining}</span>
+                    </Link>
+                  )}
 
                   <Link
                     href="/models"

@@ -23,13 +23,22 @@
 - تاریخ و زمان شمسی
 
 📱 **صفحات کاربردی**
-- ورود و ثبت‌نام
+- ورود
+- صفحه اطلاع‌رسانی ثبت‌نام غیرفعال
 - داشبورد
-- مدیریت مجموعه داده‌ها
-- آموزش مدل
-- پایش کارهای آموزشی
+- مدیریت مجموعه داده‌ها برای `ADMIN`
+- آموزش مدل برای `ADMIN`
+- پایش کارهای آموزشی برای `ADMIN`
 - مشاهده مدل‌ها
 - دریافت توصیه‌ها
+
+## Handoff
+
+- قرارداد endpointها و flow فعلی فرانت/بک‌اند در [docs/FRONTEND_HANDOFF.md](./docs/FRONTEND_HANDOFF.md) مستند شده است.
+- برای توسعه‌ی featureهای upload multipart، model inference، و role split بین `USER` و `ADMIN` این سند را مبنا قرار دهید.
+- inventory کامل API در [docs/API_INVENTORY.md](./docs/API_INVENTORY.md) قرار دارد.
+- معماری فعلی فرانت در [docs/FRONTEND_ARCHITECTURE.md](./docs/FRONTEND_ARCHITECTURE.md) خلاصه شده است.
+- ماتریس UI → API و roadmap modernization در [docs/UI_API_MATRIX.md](./docs/UI_API_MATRIX.md) نگهداری می‌شود.
 
 ## پیش‌نیازها
 
@@ -57,7 +66,7 @@ cp .env.example .env.local
 و آدرس API بک‌اند خود را تنظیم کنید:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
 ```
 
 ### 3. اجرای برنامه در حالت توسعه
@@ -81,7 +90,7 @@ npm start
 frontend/
 ├── app/                      # صفحات Next.js App Router
 │   ├── login/               # صفحه ورود
-│   ├── register/            # صفحه ثبت‌نام
+│   ├── register/            # صفحه اطلاع‌رسانی ثبت‌نام غیرفعال
 │   ├── dashboard/           # داشبورد
 │   ├── datasets/            # مدیریت داده‌ها
 │   ├── training/            # آموزش مدل
@@ -138,30 +147,34 @@ frontend/
 بک‌اند باید endpoint های زیر را فراهم کند:
 
 ### احراز هویت
-- `POST /api/auth/login` - ورود کاربر
-- `POST /api/auth/register` - ثبت‌نام کاربر
-- `POST /api/auth/refresh` - تازه‌سازی توکن
-- `GET /api/auth/me` - اطلاعات کاربر جاری
+- `POST /api/v1/auth/login` - ورود کاربر
+- `POST /api/v1/auth/logout` - خروج و revoke توکن
+- `POST /api/v1/auth/refresh` - تازه‌سازی توکن
+- `GET /api/v1/auth/me` - اطلاعات کاربر جاری
+- `POST /api/v1/auth/register` - از دید UI غیرفعال و باید `403` برگرداند
 
-### مجموعه داده‌ها
-- `GET /api/datasets` - لیست مجموعه داده‌ها
-- `GET /api/datasets/{id}` - جزئیات یک مجموعه داده
-- `POST /api/datasets` - بارگذاری مجموعه داده جدید
-- `DELETE /api/datasets/{id}` - حذف مجموعه داده
+### مدل‌های user-facing
+- `GET /api/v1/models/available` - مدل‌های قابل استفاده برای `USER` و `ADMIN`
+- fallback: `GET /api/v1/engine/models/me`
 
-### آموزش
-- `POST /api/training/start` - شروع آموزش
-- `GET /api/training/jobs` - لیست کارهای آموزشی
-- `GET /api/training/jobs/{id}` - جزئیات یک کار آموزشی
-- `POST /api/training/jobs/{id}/cancel` - لغو کار آموزشی
+### مجموعه داده‌ها و آموزش
+- `GET /api/v1/engine/datasets/db`
+- `GET /api/v1/engine/datasets/{dataset_id}/preview`
+- `GET /api/v1/engine/datasets/download?dataset_id=...`
+- `POST /api/v1/engine/datasets/upload`
+- `POST /api/v1/engine/datasets/upload/multipart/init`
+- `GET /api/v1/engine/datasets/upload/multipart/presign`
+- `POST /api/v1/engine/datasets/upload/multipart/complete`
+- `POST /api/v1/engine/train`
+- `POST /api/v1/engine/train/auto`
 
-### مدل‌ها
-- `GET /api/models` - لیست مدل‌ها
-- `GET /api/models/{id}` - جزئیات یک مدل
-- `DELETE /api/models/{id}` - حذف مدل
+### مدیریت مدل
+- `GET /api/v1/admin/models`
+- fallback: `GET /api/v1/engine/models`
+- `DELETE /api/v1/engine/models/{job_id}`
 
 ### توصیه‌ها
-- `POST /api/recommendations` - دریافت توصیه‌ها
+- `GET /api/v1/engine/jobs/{job_id}/recommend`
 
 ## توسعه
 
@@ -198,7 +211,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

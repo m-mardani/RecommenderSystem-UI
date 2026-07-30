@@ -11,9 +11,6 @@
 ### صفحه ورود
 ![Login Page](https://github.com/user-attachments/assets/6d409f23-6751-49ef-9211-cfacbdb1dc5c)
 
-### صفحه ثبت‌نام
-![Register Page](https://github.com/user-attachments/assets/a4841657-5f76-4a00-8ea7-a0127614920d)
-
 ## ویژگی‌های کلیدی
 
 - ✅ **Next.js 16** با TypeScript
@@ -23,13 +20,14 @@
 - ✅ **کنترل دسترسی مبتنی بر نقش** (ADMIN/USER)
 - ✅ **پشتیبانی کامل از فارسی** (RTL + فونت Vazirmatn)
 - ✅ **مدیریت حالت‌های بارگذاری و خطا**
-- ✅ **صفحات کامل**: ورود، ثبت‌نام، داشبورد، داده‌ها، آموزش، پایش، مدل‌ها، توصیه‌ها
+- ✅ **صفحات کامل**: ورود، داشبورد، داده‌ها، آموزش، پایش، مدل‌ها، توصیه‌ها
+- ✅ **سازگاری دوحالته با backend**: پشتیبانی از API زنده و contract جدید split شده‌ی `USER/ADMIN`
 
 ## صفحات پیاده‌سازی شده
 
 ### 🔐 احراز هویت
 - **صفحه ورود** - ورود کاربران با نام کاربری و رمز عبور
-- **صفحه ثبت‌نام** - ثبت‌نام کاربران جدید با اعتبارسنجی فرم
+- **صفحه ثبت‌نام** - به صفحه اطلاع‌رسانی تغییر کرده چون ثبت‌نام عمومی غیرفعال است
 
 ### 📊 داشبورد
 - نمایش آمار کلی سیستم (تعداد داده‌ها، مدل‌ها، کارهای فعال)
@@ -91,7 +89,7 @@ cp .env.example .env.local
 و آدرس API را تنظیم کنید:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
 ```
 
 ### اجرا
@@ -108,7 +106,7 @@ npm run dev
 frontend/
 ├── app/                      # صفحات Next.js
 │   ├── login/               # صفحه ورود
-│   ├── register/            # صفحه ثبت‌نام
+│   ├── register/            # صفحه اطلاع‌رسانی ثبت‌نام غیرفعال
 │   ├── dashboard/           # داشبورد
 │   ├── datasets/            # مجموعه داده‌ها
 │   ├── training/            # آموزش مدل
@@ -134,7 +132,8 @@ frontend/
 - مدیریت خودکار توکن‌های منقضی شده
 
 ### 🛡️ محافظت از مسیرها
-- تمام صفحات به جز ورود و ثبت‌نام محافظت شده‌اند
+- تمام صفحات به جز ورود محافظت شده‌اند
+- صفحه `register` فقط وضعیت غیرفعال بودن ثبت‌نام را توضیح می‌دهد
 - هدایت خودکار کاربران غیرمجاز به صفحه ورود
 
 ### 👥 کنترل دسترسی مبتنی بر نقش
@@ -160,26 +159,25 @@ frontend/
 بک‌اند FastAPI باید endpoint های زیر را فراهم کند:
 
 **احراز هویت:**
-- `POST /api/auth/login` - ورود
-- `POST /api/auth/register` - ثبت‌نام
-- `POST /api/auth/refresh` - تازه‌سازی توکن
-- `GET /api/auth/me` - اطلاعات کاربر
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/auth/refresh`
+- `GET /api/v1/auth/me`
 
-**مجموعه داده‌ها:**
-- `GET /api/datasets` - لیست داده‌ها
-- `POST /api/datasets` - بارگذاری
-- `DELETE /api/datasets/{id}` - حذف
+**مدل‌های user-facing:**
+- `GET /api/v1/models/available`
+- fallback: `GET /api/v1/engine/models/me`
 
-**آموزش:**
-- `POST /api/training/start` - شروع آموزش
-- `GET /api/training/jobs` - لیست کارها
+**مجموعه داده‌ها و آموزش:**
+- `GET /api/v1/engine/datasets/db`
+- `POST /api/v1/engine/datasets/upload`
+- `POST /api/v1/engine/train`
+- `POST /api/v1/engine/train/auto`
 
-**مدل‌ها:**
-- `GET /api/models` - لیست مدل‌ها
-- `DELETE /api/models/{id}` - حذف
-
-**توصیه‌ها:**
-- `POST /api/recommendations` - دریافت توصیه
+**مدل‌ها و توصیه‌ها:**
+- `GET /api/v1/admin/models`
+- `DELETE /api/v1/engine/models/{job_id}`
+- `GET /api/v1/engine/jobs/{job_id}/recommend`
 
 ## توسعه
 

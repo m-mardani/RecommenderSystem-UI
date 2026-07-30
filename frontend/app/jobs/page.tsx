@@ -15,6 +15,7 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -56,8 +57,21 @@ export default function JobsPage() {
     };
   }, [fetchJobs]);
 
-  const handleCancel = async () => {
-    alert('لغو کار آموزشی در بک‌اند فعلی پشتیبانی نمی‌شود.');
+  const handleCancel = async (jobId: string) => {
+    const id = String(jobId).trim();
+    if (!id) return;
+    if (!window.confirm(translations.jobs.confirmCancel)) return;
+
+    try {
+      setCancelingJobId(id);
+      setError('');
+      await trainingApi.cancelJob(id);
+      await fetchJobs();
+    } catch (err: unknown) {
+      alert(getApiErrorDetail(err) || translations.jobs.cancelError);
+    } finally {
+      setCancelingJobId(null);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -68,6 +82,8 @@ export default function JobsPage() {
         return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'canceled':
+        return 'bg-gray-200 text-gray-800';
       case 'failed':
         return 'bg-red-100 text-red-800';
       default:
@@ -80,13 +96,35 @@ export default function JobsPage() {
       pending: translations.jobs.statuses.pending,
       running: translations.jobs.statuses.running,
       completed: translations.jobs.statuses.completed,
+      canceled: translations.jobs.statuses.canceled,
       failed: translations.jobs.statuses.failed,
     };
     return statusMap[status] || status;
   };
 
+  const formatEta = (seconds?: number) => {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '-';
+    if (seconds < 60) return `${Math.round(seconds)} ثانیه`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)} دقیقه`;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.round((seconds % 3600) / 60);
+    return minutes > 0 ? `${hours} ساعت و ${minutes} دقیقه` : `${hours} ساعت`;
+  };
+
+  const getStatusDisplay = (job: TrainingJob) => {
+    const base = getStatusText(job.status);
+    if (job.status !== 'running') return base;
+    if (typeof job.eta_seconds === 'number' && Number.isFinite(job.eta_seconds) && job.eta_seconds >= 0) {
+      return `${base} · ${formatEta(job.eta_seconds)}`;
+    }
+    if (job.estimated_completion_at) {
+      return `${base} · تا ${new Date(job.estimated_completion_at).toLocaleTimeString('fa-IR')}`;
+    }
+    return base;
+  };
+
   return (
-    <ProtectedRoute>
+    <ProtectedRoute adminOnly>
       <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="container mx-auto px-4 py-8">
@@ -124,7 +162,7 @@ export default function JobsPage() {
                             job.status
                           )}`}
                         >
-                          {getStatusText(job.status)}
+                          {getStatusDisplay(job)}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 mb-1">
@@ -146,6 +184,22 @@ export default function JobsPage() {
                           {new Date(job.completed_at).toLocaleString('fa-IR')}
                         </p>
                       )}
+                      {job.estimated_completion_at && (
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>{translations.jobs.estimatedCompletion}:</strong>{' '}
+                          {new Date(job.estimated_completion_at).toLocaleString('fa-IR')}
+                        </p>
+                      )}
+                      {job.duration_seconds !== undefined && (
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>{translations.jobs.durationSeconds}:</strong> {job.duration_seconds}
+                        </p>
+                      )}
+                      {job.eta_seconds !== undefined && (
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>{translations.jobs.eta}:</strong> {formatEta(job.eta_seconds)}
+                        </p>
+                      )}
                       {job.error_message && (
                         <p className="text-sm text-red-600 mt-2">
                           <strong>خطا:</strong> {job.error_message}
@@ -154,10 +208,11 @@ export default function JobsPage() {
                     </div>
                     {(job.status === 'pending' || job.status === 'running') && (
                       <button
-                        onClick={handleCancel}
-                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
+                        onClick={() => void handleCancel(job.id)}
+                        disabled={cancelingJobId === job.id}
+                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors disabled:bg-gray-400"
                       >
-                        {translations.jobs.cancel}
+                        {cancelingJobId === job.id ? translations.common.loading : translations.jobs.cancel}
                       </button>
                     )}
                   </div>
