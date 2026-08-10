@@ -16,6 +16,10 @@ import {
   ScenarioPredictionRequest,
   ScenarioPredictionResponse,
   ActionCandidate,
+  InferenceProfile,
+  TrainingJobState,
+  TrainingJobProgressStream,
+  TrainingJobEpochStream,
 } from '@/types';
 
 type UploadedDatasetInfo = {
@@ -336,6 +340,8 @@ type TrainedModelInfo = {
   evaluation_metrics?: Record<string, unknown> | null;
   config?: Record<string, unknown> | null;
   dataset_metadata?: Record<string, unknown> | null;
+  task_type?: string | null;
+  inference_profile?: Record<string, unknown> | null;
 };
 
 type TrainedModelsResponse = {
@@ -349,10 +355,33 @@ type AvailableModelInfo = {
   completed_at?: string | null;
   evaluation_metrics?: Record<string, unknown> | null;
   dataset_display_name?: string | null;
+  dataset_id?: string | null;
+  task_type?: string | null;
+  inference_profile?: Record<string, unknown> | null;
 };
 
 type AvailableModelsResponse = {
   models: AvailableModelInfo[];
+};
+
+type JobDetailResponse = {
+  job_id?: string;
+  inference_profile?: Record<string, unknown> | null;
+  summary?: {
+    experiment_name?: string | null;
+    strategy?: string | null;
+    status?: string | null;
+    completed_at?: string | null;
+    dataset_id?: string | null;
+    task_type?: string | null;
+    evaluation_metrics?: Record<string, unknown> | null;
+    inference_profile?: Record<string, unknown> | null;
+  } | null;
+  db?: {
+    status?: string | null;
+    completed_at?: string | null;
+    dataset_id?: string | null;
+  } | null;
 };
 
 const normalizeEvaluationMetrics = (input: unknown): Record<string, unknown> | undefined => {
@@ -383,6 +412,7 @@ type EngineRecommendResponse = {
   job_id?: string;
   recommendations?: Array<{
     item_id: number | string;
+    movie_name?: string | null;
     score: number | string;
     rank?: number | null;
     strategy?: string | null;
@@ -402,6 +432,7 @@ type EnginePredictionResponse = {
   effectiveness_estimate?: number | null;
   recommendations?: Array<{
     item_id: number | string;
+    movie_name?: string | null;
     score: number | string;
     rank?: number | null;
     strategy?: string | null;
@@ -452,6 +483,48 @@ type EngineJobStateResponse = {
   error?: string | null;
   latest?: Record<string, unknown> | null;
 };
+
+const normalizeJobState = (input: EngineJobStateResponse): TrainingJobState => ({
+  job_id: String(input.job_id),
+  status: stringOrUndefined(input.status) ?? stringOrUndefined(input.progress_status),
+  progress_status: stringOrUndefined(input.progress_status),
+  stage: stringOrUndefined(input.stage),
+  epoch: numberOrUndefined(input.epoch),
+  total_epochs: numberOrUndefined(input.total_epochs),
+  epoch_text: stringOrUndefined(input.epoch_text),
+  progress_pct: numberOrUndefined(input.progress_pct),
+  started_at: stringOrUndefined(input.started_at),
+  completed_at: stringOrUndefined(input.completed_at),
+  duration_seconds: numberOrUndefined(input.duration_seconds),
+  eta_seconds: numberOrUndefined(input.eta_seconds),
+  estimated_completion_at: stringOrUndefined(input.estimated_completion_at),
+  is_terminal: typeof input.is_terminal === 'boolean' ? input.is_terminal : undefined,
+  error: stringOrUndefined(input.error),
+  latest: input.latest && typeof input.latest === 'object' ? input.latest : null,
+});
+
+const normalizeJobProgressStream = (input: EngineJobProgressResponse): TrainingJobProgressStream => ({
+  job_id: String(input.job_id),
+  latest: input.latest && typeof input.latest === 'object' ? input.latest : null,
+  events: Array.isArray(input.events) ? input.events.filter((v) => v && typeof v === 'object') as Array<Record<string, unknown>> : [],
+  total_events: numberOrUndefined(input.total_events),
+  eta_seconds: numberOrUndefined(input.eta_seconds),
+  estimated_completion_at: stringOrUndefined(input.estimated_completion_at),
+});
+
+const normalizeJobEpochStream = (input: EngineJobEpochsResponse): TrainingJobEpochStream => ({
+  job_id: String(input.job_id),
+  status: stringOrUndefined(input.status),
+  stage: stringOrUndefined(input.stage),
+  current_epoch: numberOrUndefined(input.current_epoch),
+  total_epochs: numberOrUndefined(input.total_epochs),
+  epoch_text: stringOrUndefined(input.epoch_text),
+  progress_pct: numberOrUndefined(input.progress_pct),
+  eta_seconds: numberOrUndefined(input.eta_seconds),
+  estimated_completion_at: stringOrUndefined(input.estimated_completion_at),
+  events: Array.isArray(input.events) ? input.events.filter((v) => v && typeof v === 'object') as Array<Record<string, unknown>> : [],
+  total_events: numberOrUndefined(input.total_events),
+});
 
 const TRAINING_JOB_IDS_STORAGE_KEY = 'rs_training_job_ids';
 
@@ -534,14 +607,50 @@ const recordOrEmpty = (value: unknown): Record<string, unknown> => {
   return {};
 };
 
+const normalizeInferenceProfile = (value: unknown): InferenceProfile | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const profile = value as Record<string, unknown>;
+  const supportedPresets = arrayOfStrings(profile.supported_presets);
+  const sampleFields = arrayOfStrings(profile.sample_fields);
+  const requiredSampleFields = arrayOfStrings(profile.required_sample_fields);
+  const datasetFamily = stringOrUndefined(profile.dataset_family);
+  const recommendedPreset = stringOrUndefined(profile.recommended_preset);
+  const taskType = stringOrUndefined(profile.task_type);
+  const strategy = stringOrUndefined(profile.strategy);
+
+  if (
+    !datasetFamily &&
+    !recommendedPreset &&
+    !taskType &&
+    !strategy &&
+    supportedPresets.length === 0 &&
+    sampleFields.length === 0 &&
+    requiredSampleFields.length === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    dataset_family: datasetFamily,
+    recommended_preset: recommendedPreset,
+    supported_presets: supportedPresets,
+    task_type: taskType,
+    strategy,
+    sample_fields: sampleFields,
+    required_sample_fields: requiredSampleFields,
+  };
+};
+
 const normalizeRecommendation = (input: {
   item_id: string | number;
+  movie_name?: string | null;
   score: string | number;
   rank?: number | null;
   strategy?: string | null;
   explanation?: Record<string, unknown> | null;
 }): Recommendation => ({
   item_id: typeof input.item_id === 'number' ? input.item_id : String(input.item_id),
+  movie_name: typeof input.movie_name === 'string' ? input.movie_name : input.movie_name ?? undefined,
   score: Number(input.score),
   rank: typeof input.rank === 'number' ? input.rank : undefined,
   strategy: input.strategy ? String(input.strategy) : undefined,
@@ -554,7 +663,8 @@ const normalizeActionCandidates = (value: unknown): ActionCandidate[] => {
     .map((entry) => {
       const row = recordOrEmpty(entry);
       const action = stringOrUndefined(row.action);
-      const score = numberOrUndefined(row.score);
+      const meanEffectiveness = numberOrUndefined(row.mean_effectiveness);
+      const score = numberOrUndefined(row.score) ?? meanEffectiveness;
       const rank = numberOrUndefined(row.rank);
       if (!action || score === undefined || rank === undefined) return null;
       return {
@@ -562,6 +672,7 @@ const normalizeActionCandidates = (value: unknown): ActionCandidate[] => {
         score,
         rank,
         support: numberOrUndefined(row.support),
+        mean_effectiveness: meanEffectiveness,
       };
     })
     .filter(Boolean) as ActionCandidate[];
@@ -701,7 +812,10 @@ const normalizeAvailableModel = (model: AvailableModelInfo): Model => ({
   status: 'completed',
   created_at: model.completed_at ? String(model.completed_at) : undefined,
   completed_at: model.completed_at ? String(model.completed_at) : undefined,
+  dataset_id: model.dataset_id ? String(model.dataset_id) : undefined,
   dataset_display_name: model.dataset_display_name ? String(model.dataset_display_name) : undefined,
+  task_type: stringOrUndefined(model.task_type),
+  inference_profile: normalizeInferenceProfile(model.inference_profile),
   metrics: normalizeEvaluationMetrics(model.evaluation_metrics),
   is_available: true,
   can_delete: false,
@@ -731,6 +845,8 @@ const normalizeTrainedModel = (model: TrainedModelInfo, scope: ModelListScope): 
     uploader_username: model.uploader_username ? String(model.uploader_username) : undefined,
     original_filename: model.original_filename ? String(model.original_filename) : undefined,
     model_s3_uri: model.model_s3_uri ? String(model.model_s3_uri) : undefined,
+    task_type: stringOrUndefined(model.task_type),
+    inference_profile: normalizeInferenceProfile(model.inference_profile),
     metrics: normalizeEvaluationMetrics(model.evaluation_metrics),
     is_available: isAvailable,
     can_delete: scope === 'admin',
@@ -909,14 +1025,17 @@ export const datasetApi = {
 
 // Training APIs
 export const trainingApi = {
-  trainAuto: async (datasetId: string, numEpochs: number): Promise<TrainingJob> => {
-    const normalizedEpochs = Math.trunc(numEpochs);
-    if (!Number.isFinite(normalizedEpochs) || normalizedEpochs < 1) throw new Error('num_epochs must be >= 1');
-    const epochs = normalizedEpochs;
-
+  trainAuto: async (
+    datasetId: string,
+    options: {
+      persist_job_to_postgres?: boolean;
+      persist_vectors_to_postgres?: boolean;
+    } = {}
+  ): Promise<TrainingJob> => {
     const response = await apiClient.post<EngineTrainResponse>('/engine/train/auto', {
       dataset_id: datasetId,
-      num_epochs: epochs,
+      persist_job_to_postgres: options.persist_job_to_postgres ?? undefined,
+      persist_vectors_to_postgres: options.persist_vectors_to_postgres ?? undefined,
     });
 
     const r = response.data;
@@ -1039,6 +1158,27 @@ export const trainingApi = {
     }
   },
 
+  getJobState: async (id: string): Promise<TrainingJobState> => {
+    const response = await apiClient.get<EngineJobStateResponse>(`/engine/jobs/${encodeURIComponent(id)}/state`);
+    return normalizeJobState(response.data);
+  },
+
+  getJobProgressStream: async (id: string, tail = 100): Promise<TrainingJobProgressStream> => {
+    const response = await apiClient.get<EngineJobProgressResponse>(
+      `/engine/jobs/${encodeURIComponent(id)}/progress`,
+      { params: { tail } }
+    );
+    return normalizeJobProgressStream(response.data);
+  },
+
+  getJobEpochStream: async (id: string, tail = 100): Promise<TrainingJobEpochStream> => {
+    const response = await apiClient.get<EngineJobEpochsResponse>(
+      `/engine/train/${encodeURIComponent(id)}/epochs`,
+      { params: { tail } }
+    );
+    return normalizeJobEpochStream(response.data);
+  },
+
   cancelJob: async (jobId: string): Promise<void> => {
     const id = String(jobId).trim();
     if (!id) throw new Error('job_id is required');
@@ -1053,9 +1193,12 @@ export const modelApi = {
   },
 
   getById: async (id: string): Promise<Model> => {
-    const response = await apiClient.get(`/engine/jobs/${encodeURIComponent(id)}`);
+    const response = await apiClient.get<JobDetailResponse>(`/engine/jobs/${encodeURIComponent(id)}`);
     const summary = response.data?.summary || {};
     const db = response.data?.db || {};
+    const inferenceProfile =
+      normalizeInferenceProfile(response.data?.inference_profile) ??
+      normalizeInferenceProfile(summary.inference_profile);
     return {
       id: String(response.data?.job_id || id),
       name: String(summary.experiment_name || id),
@@ -1065,6 +1208,7 @@ export const modelApi = {
       completed_at: stringOrUndefined(summary.completed_at) ?? stringOrUndefined(db.completed_at),
       dataset_id: stringOrUndefined(summary.dataset_id) ?? stringOrUndefined(db.dataset_id),
       task_type: stringOrUndefined(summary.task_type),
+      inference_profile: inferenceProfile,
       metrics: normalizeEvaluationMetrics(summary.evaluation_metrics),
     };
   },
@@ -1105,6 +1249,42 @@ export const recommendationApi = {
         spatial_features: request.spatial_features ?? undefined,
         environmental_features: request.environmental_features ?? undefined,
         item_features: request.item_features ?? undefined,
+      }
+    );
+
+    return {
+      job_id: String(response.data.job_id),
+      dataset_id: String(response.data.dataset_id),
+      strategy: String(response.data.strategy),
+      task_type: stringOrUndefined(response.data.task_type),
+      required_fields: arrayOfStrings(response.data.required_fields),
+      input_sample: recordOrEmpty(response.data.input_sample),
+      recommended_action: response.data.recommended_action ?? undefined,
+      action_candidates: normalizeActionCandidates(response.data.action_candidates),
+      effectiveness_estimate: numberOrUndefined(response.data.effectiveness_estimate),
+      recommendations: (response.data.recommendations ?? []).map(normalizeRecommendation),
+    };
+  },
+
+  predictSample: async (
+    request: ScenarioPredictionRequest
+  ): Promise<ScenarioPredictionResponse> => {
+    const dynamicSample = Object.fromEntries(
+      Object.entries(request.sample).filter(([key]) => String(key).trim())
+    );
+
+    const response = await apiClient.get<EnginePredictionResponse>(
+      `/engine/jobs/${encodeURIComponent(request.job_id)}/prediction`,
+      {
+        params: {
+          ...dynamicSample,
+          n: request.top_k ?? 5,
+          strategy: stringOrUndefined(request.strategy),
+          temporalFeatures: request.temporal_features,
+          spatialFeatures: request.spatial_features,
+          environmentalFeatures: request.environmental_features,
+          itemFeatures: request.item_features,
+        },
       }
     );
 

@@ -12,6 +12,7 @@
   - `GET /api/v1/models/available`
   - `GET /api/v1/engine/jobs/{job_id}/recommend`
   - `GET /api/v1/engine/jobs/{job_id}/prediction`
+  - `POST /api/v1/engine/jobs/{job_id}/prediction/scenario`
 - کاربر `ADMIN`:
   - همه endpointهای بالا
   - endpointهای user management
@@ -54,10 +55,40 @@
 
 - `GET /api/v1/engine/jobs/{job_id}/recommend?user_id=123&top_k=10`
 - `GET /api/v1/engine/jobs/{job_id}/prediction?...`
+- `POST /api/v1/engine/jobs/{job_id}/prediction/scenario`
 
 نکته:
 - فقط modelهای `succeeded` برای user قابل استفاده‌اند.
 - برای jobهای حذف‌شده، ناموفق، یا incomplete انتظار `404` یا `422` داشته باشید.
+- مسیر پیش‌فرض برای use caseهای جدید frontend باید `prediction/scenario` باشد، نه `recommend`.
+- `job_id` شناسه مدل فعال برای inference است و باید در state فرانت نگه داشته شود.
+- اگر `inference_profile` در مدل انتخاب‌شده وجود داشت، همان باید source of truth presetها و sample fieldها باشد.
+- اگر `inference_profile` در مدل لیست‌شده ناقص یا غایب بود، frontend باید `GET /api/v1/engine/jobs/{job_id}` را برای hydrate کردن profile استفاده کند.
+- UI recommendation باید هر دو حالت `item_recommendation` و `action_recommendation` را پشتیبانی کند.
+- frontend باید صفحه recommendations را dataset-agnostic نگه دارد؛ فیلدهای sample باید با همان کلیدهای واقعی dataset ارسال شوند.
+- فقط presetهای موجود در `supported_presets` باید نمایش داده شوند.
+- اگر `recommended_preset` وجود داشت، همان preset باید به‌صورت خودکار انتخاب شود.
+- اگر `recommended_preset` خالی بود اما `supported_presets` فقط یک مورد داشت، همان مورد باید auto-select شود.
+- اگر `supported_presets` خالی بود، shortcut preset نباید نمایش داده شود و فقط generic editor باید باقی بماند.
+- `sample_fields` باید برای initialize کردن structured editor استفاده شود و `required_sample_fields` باید در UI به‌صورت required marker دیده شوند.
+- `movie_name` یک فیلد legacy است اما باید به‌عنوان عنوان نمایشی عمومی تفسیر شود، نه نشانه movie-specific بودن UI.
+- برای `action_recommendation`:
+  - `recommended_action` عنوان اصلی خروجی است
+  - اگر خالی بود از اولین `action_candidates` استفاده کنید
+  - `action_candidates` را در بخشی جدا از جدول generic recommendations نشان دهید
+  - `effectiveness_estimate` را فقط به‌عنوان برآورد مدل نمایش دهید، نه KPI قطعی
+- `sample` در `prediction/scenario` باید داینامیک باشد و فقط به فیلدهای movie-style محدود نشود.
+- after preset apply، ویرایش دستی sample باید همچنان ممکن بماند و request keys نباید rename شوند.
+- برای Hakim، نمونه فیلدهای فعلی عبارت‌اند از:
+  - `user_id`
+  - `item_id`
+  - `report_date_gregorian`
+  - `project_category`
+  - `current_status`
+  - `contract_status`
+  - `issue_category`
+  - `issue_status`
+  - `action_source`
 
 ## Admin Dataset Multipart Flow
 

@@ -2,12 +2,13 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Navbar } from '@/components/common/Navbar';
+import { AppShell } from '@/components/common/AppShell';
 import { AdminOnlyRoute } from '@/components/common/AdminOnlyRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
 import { fetchSystemLogs, FetchSystemLogsParams, SystemLogEvent, SystemLogsResponse } from '@/lib/api';
 import { getApiErrorDetail } from '@/lib/utils/apiError';
+import { translations } from '@/lib/utils/translations';
 import { useAuth } from '@/contexts/AuthContext';
 
 const ACTION_OPTIONS = [
@@ -156,22 +157,16 @@ export default function SystemLogsPage() {
 
   return (
     <AdminOnlyRoute>
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
-
-        <div className="container mx-auto px-4 py-8 space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold text-gray-800">System Logs</h1>
-            <button
-              onClick={load}
-              disabled={loading || blocked}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
-            >
-              Refresh
-            </button>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md border border-gray-200 p-5">
+      <AppShell
+        title={translations.nav.systemLogs}
+        description="فیلتر و مرور رخدادهای سیستمی به همراه snapshot عملیاتی backend."
+        actions={
+          <button onClick={load} disabled={loading || blocked} className="app-btn app-btn-primary">
+            Refresh
+          </button>
+        }
+      >
+          <div className="app-card p-5">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">limit</label>
@@ -250,23 +245,24 @@ export default function SystemLogsPage() {
             </div>
           </div>
 
+          <div className="mt-6 space-y-6">
           {loading ? (
             <LoadingSpinner />
           ) : error ? (
             <ErrorMessage message={error} onRetry={blocked ? undefined : load} />
           ) : (
             <>
-              <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="app-card overflow-hidden">
+                <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
                   <h2 className="text-lg font-bold text-gray-800">Events</h2>
                 </div>
 
                 {events.length === 0 ? (
                   <div className="p-8 text-center text-gray-600">No events</div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="app-table">
                     <table className="w-full">
-                      <thead className="bg-white border-b border-gray-200">
+                      <thead>
                         <tr>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500">created_at</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500">action</th>
@@ -276,7 +272,7 @@ export default function SystemLogsPage() {
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500">details</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody>
                         {events.map((ev) => {
                           const actor = `${ev.actor_username ?? '-'} (${ev.actor_user_id ?? '-'})`;
                           const entity = `${ev.entity_type ?? '-'} / ${ev.entity_id ?? '-'}`;
@@ -315,8 +311,8 @@ export default function SystemLogsPage() {
               </div>
 
               {includeSnapshot && snapshot && (
-                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
+                <div className="app-card overflow-hidden">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h2 className="text-lg font-bold text-gray-800">Snapshot</h2>
                       <p className="text-xs text-gray-500">
@@ -331,7 +327,7 @@ export default function SystemLogsPage() {
                       {!(snapshot.presence && snapshot.presence.length > 0) ? (
                         <p className="text-sm text-gray-600">No presence data yet</p>
                       ) : (
-                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                        <div className="app-table">
                           <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-200">
                               <tr>
@@ -374,7 +370,7 @@ export default function SystemLogsPage() {
                       {!(snapshot.uploading_datasets && snapshot.uploading_datasets.length > 0) ? (
                         <p className="text-sm text-gray-600">No active uploads</p>
                       ) : (
-                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                        <div className="app-table">
                           <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-200">
                               <tr>
@@ -408,7 +404,7 @@ export default function SystemLogsPage() {
                       {!(snapshot.active_trainings && snapshot.active_trainings.length > 0) ? (
                         <p className="text-sm text-gray-600">No active trainings</p>
                       ) : (
-                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                        <div className="app-table">
                           <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-200">
                               <tr>
@@ -459,8 +455,8 @@ export default function SystemLogsPage() {
               )}
             </>
           )}
-        </div>
-      </div>
+          </div>
+      </AppShell>
     </AdminOnlyRoute>
   );
 }

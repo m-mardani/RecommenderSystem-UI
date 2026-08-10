@@ -34,9 +34,10 @@ export default function LoginPage() {
       <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
         <div className="w-full max-w-md">
           <section className="w-full">
-            <div className="mx-auto w-full rounded-[28px] border border-white/16 bg-white/10 p-6 shadow-[0_28px_80px_rgba(2,6,23,0.48)] backdrop-blur-2xl sm:p-8">
+            <div className="mx-auto w-full rounded-[32px] border border-white/16 bg-white/12 p-6 shadow-[0_28px_80px_rgba(2,6,23,0.48)] backdrop-blur-2xl sm:p-8">
               <div className="mb-8 text-center">
-                <h1 className="text-3xl font-black text-white sm:text-4xl">Recommender System Platform</h1>
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/80">AI Recommendation System</p>
+                <h1 className="mt-3 text-3xl font-black text-white sm:text-4xl">Recommender System Platform</h1>
                 <p className="mt-3 text-sm leading-7 text-slate-300">
                   برای ادامه، با نام کاربری و رمز عبور خود وارد شوید.
                 </p>
@@ -84,7 +85,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-400 px-4 py-3 font-bold text-slate-950 transition hover:from-sky-400 hover:to-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 via-cyan-400 to-violet-400 px-4 py-3 font-bold text-slate-950 shadow-[0_18px_30px_rgba(56,189,248,0.35)] transition hover:from-sky-400 hover:to-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? 'در حال ورود...' : translations.auth.login}
                 </button>

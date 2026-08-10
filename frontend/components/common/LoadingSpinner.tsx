@@ -4,10 +4,11 @@ import { translations } from '@/lib/utils/translations';
 
 export const LoadingSpinner = ({ message }: { message?: string }) => {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[200px]">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      {message && <p className="mt-4 text-gray-600">{message}</p>}
-      {!message && <p className="mt-4 text-gray-600">{translations.common.loading}</p>}
+    <div className="app-card flex min-h-[220px] flex-col items-center justify-center px-6 py-10 text-center">
+      <div className="h-14 w-14 animate-spin rounded-full border-[3px] border-sky-200 border-t-sky-500"></div>
+      <p className="mt-5 text-sm font-medium text-slate-600">
+        {message || translations.common.loading}
+      </p>
     </div>
   );
 };

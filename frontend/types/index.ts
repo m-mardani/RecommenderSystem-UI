@@ -97,6 +97,62 @@ export interface TrainingJob {
   error_message?: string;
 }
 
+export interface TrainingJobEventRecord {
+  [key: string]: unknown;
+}
+
+export interface TrainingJobState {
+  job_id: string;
+  status?: string;
+  progress_status?: string;
+  stage?: string;
+  epoch?: number;
+  total_epochs?: number;
+  epoch_text?: string;
+  progress_pct?: number;
+  started_at?: string;
+  completed_at?: string;
+  duration_seconds?: number;
+  eta_seconds?: number;
+  estimated_completion_at?: string;
+  is_terminal?: boolean;
+  error?: string;
+  latest?: TrainingJobEventRecord | null;
+}
+
+export interface TrainingJobProgressStream {
+  job_id: string;
+  latest?: TrainingJobEventRecord | null;
+  events: TrainingJobEventRecord[];
+  total_events?: number;
+  eta_seconds?: number;
+  estimated_completion_at?: string;
+}
+
+export interface TrainingJobEpochStream {
+  job_id: string;
+  status?: string;
+  stage?: string;
+  current_epoch?: number;
+  total_epochs?: number;
+  epoch_text?: string;
+  progress_pct?: number;
+  eta_seconds?: number;
+  estimated_completion_at?: string;
+  events: TrainingJobEventRecord[];
+  total_events?: number;
+}
+
+export interface InferenceProfile {
+  dataset_family?: string;
+  recommended_preset?: string;
+  supported_presets: string[];
+  task_type?: string;
+  strategy?: string;
+  sample_fields: string[];
+  required_sample_fields: string[];
+}
+
 export interface Model {
   id: string;
   name: string;
@@ -110,6 +166,7 @@ export interface Model {
   original_filename?: string;
   model_s3_uri?: string;
   task_type?: string;
+  inference_profile?: InferenceProfile;
   metrics?: Record<string, unknown>;
   is_available?: boolean;
   can_delete?: boolean;
@@ -117,6 +174,7 @@ export interface Model {
 
 export interface Recommendation {
   item_id: string | number;
+  movie_name?: string | null;
   score: number;
   item_name?: string;
   rank?: number;
@@ -146,6 +204,7 @@ export interface ActionCandidate {
   score: number;
   rank: number;
   support?: number;
+  mean_effectiveness?: number;
 }
 
 export interface ScenarioPredictionResponse {

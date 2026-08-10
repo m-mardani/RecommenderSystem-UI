@@ -7,11 +7,11 @@ interface ErrorMessageProps {
 
 export const ErrorMessage = ({ message, onRetry }: ErrorMessageProps) => {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[200px]">
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
-        <div className="flex items-center mb-4">
+    <div className="flex min-h-[220px] items-center justify-center">
+      <div className="app-card max-w-xl px-6 py-7">
+        <div className="mb-4 flex items-center">
           <svg
-            className="w-6 h-6 text-red-600 ml-2"
+            className="ml-2 h-6 w-6 text-rose-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -23,13 +23,13 @@ export const ErrorMessage = ({ message, onRetry }: ErrorMessageProps) => {
               d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <h3 className="text-lg font-semibold text-red-800">خطا</h3>
+          <h3 className="text-lg font-semibold text-slate-900">خطا</h3>
         </div>
-        <p className="text-red-700 mb-4">{message}</p>
+        <p className="mb-4 text-sm leading-7 text-slate-600">{message}</p>
         {onRetry && (
           <button
             onClick={onRetry}
-            className="w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+            className="app-btn app-btn-danger w-full"
           >
             تلاش مجدد
           </button>

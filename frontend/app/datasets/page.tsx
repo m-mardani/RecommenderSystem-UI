@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Navbar } from '@/components/common/Navbar';
+import { AppShell } from '@/components/common/AppShell';
 import { ProtectedRoute } from '@/components/common/ProtectedRoute';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorMessage } from '@/components/common/ErrorMessage';
@@ -203,11 +203,22 @@ export default function DatasetsPage() {
 
   return (
     <ProtectedRoute adminOnly>
-      <div className="min-h-screen bg-gray-50">
+      <AppShell
+        title={translations.nav.datasets}
+        description="مدیریت datasetها، بارگذاری فایل، پیش‌نمایش داده و تحلیل mapping پیشنهادی."
+        actions={
+          <button
+            onClick={() => setShowUploadForm(!showUploadForm)}
+            className={showUploadForm ? 'app-btn app-btn-secondary' : 'app-btn app-btn-primary'}
+          >
+            {showUploadForm ? translations.common.cancel : translations.datasets.uploadNew}
+          </button>
+        }
+      >
         {uploadLoading && (
           <div className="fixed inset-0 z-50 bg-gray-900/40 backdrop-blur-[1px] flex items-center justify-center px-4">
-            <div className="w-full max-w-lg bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="app-card w-full max-w-lg overflow-hidden">
+              <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
                 <p className="text-sm font-semibold text-gray-800">{translations.datasets.uploadNew}</p>
                 <p className="text-xs text-gray-500">{translations.common.loading}</p>
               </div>
@@ -228,7 +239,7 @@ export default function DatasetsPage() {
                   <button
                     type="button"
                     onClick={handleCancelUpload}
-                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    className="app-btn app-btn-secondary"
                   >
                     {translations.common.cancel}
                   </button>
@@ -237,21 +248,9 @@ export default function DatasetsPage() {
             </div>
           </div>
         )}
-        <Navbar />
-        <div className="container mx-auto px-4 py-8">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-800">{translations.datasets.title}</h1>
-            <button
-              onClick={() => setShowUploadForm(!showUploadForm)}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {showUploadForm ? translations.common.cancel : translations.datasets.uploadNew}
-            </button>
-          </div>
-
           {/* Upload Form */}
           {showUploadForm && (
-            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+            <div className="app-card mb-6 p-6">
               <h2 className="text-xl font-bold text-gray-800 mb-4">{translations.datasets.uploadNew}</h2>
               <form onSubmit={handleUpload} className="space-y-4">
                 <div>
@@ -296,7 +295,7 @@ export default function DatasetsPage() {
                 <button
                   type="submit"
                   disabled={uploadLoading}
-                  className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+                  className="app-btn app-btn-success w-full"
                 >
                   {uploadLoading ? translations.common.loading : translations.common.submit}
                 </button>
@@ -310,12 +309,12 @@ export default function DatasetsPage() {
           ) : error ? (
             <ErrorMessage message={error} onRetry={loadDatasets} />
           ) : datasets.length === 0 ? (
-            <div className="bg-white p-8 rounded-lg shadow-md text-center">
-              <p className="text-gray-600">{translations.datasets.noDatasets}</p>
+            <div className="app-empty">
+              <p>{translations.datasets.noDatasets}</p>
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="app-table">
                 <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -381,8 +380,8 @@ export default function DatasetsPage() {
             </div>
 
               {selectedDatasetId && (
-                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gray-50">
+                <div className="app-card overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800">
                         {translations.datasets.preview}
@@ -395,7 +394,7 @@ export default function DatasetsPage() {
                       <button
                         onClick={() => void handleAnalyzeDataset()}
                         disabled={analysisLoading}
-                        className="text-sm text-indigo-600 hover:text-indigo-800 disabled:text-gray-400"
+                        className="text-sm font-medium text-indigo-600 hover:text-indigo-800 disabled:text-gray-400"
                       >
                         {analysisLoading ? translations.datasets.analyzing : translations.datasets.analyze}
                       </button>
@@ -446,7 +445,7 @@ export default function DatasetsPage() {
                           </span>
                         </p>
 
-                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="app-table">
                           <div className="max-h-[420px] overflow-auto">
                             <table className="min-w-full text-sm">
                               <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
@@ -542,8 +541,7 @@ export default function DatasetsPage() {
               )}
             </div>
           )}
-        </div>
-      </div>
+      </AppShell>
     </ProtectedRoute>
   );
 }

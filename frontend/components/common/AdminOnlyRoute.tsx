@@ -19,11 +19,13 @@ export const AdminOnlyRoute = ({ children }: { children: React.ReactNode }) => {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="container mx-auto px-4 py-12">
-          <div className="max-w-xl mx-auto bg-white border border-gray-200 rounded-lg shadow-md p-8">
-            <h1 className="text-2xl font-bold text-gray-800 mb-2">403</h1>
-            <p className="text-gray-700">{translations.errors.forbidden}</p>
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div className="app-card max-w-xl px-8 py-10 text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-sky-700/70">403</p>
+          <h1 className="mt-3 text-3xl font-black text-slate-900">دسترسی محدود</h1>
+          <p className="mt-4 text-sm leading-7 text-slate-600">{translations.errors.forbidden}</p>
+          <div className="mt-6 rounded-2xl border border-sky-100 bg-sky-50/80 px-4 py-3 text-xs text-sky-700">
+            این صفحه فقط برای کاربران مدیر قابل مشاهده است.
           </div>
         </div>
       </div>

@@ -28,7 +28,7 @@ Common auth errors:
 
 | Method | Route | Request | Response | Auth | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/models/available` | Query only | `AvailableModelsResponse` | `USER` or `ADMIN` | Preferred user-facing model list. Only succeeded/usable models should be shown in inference UI. |
+| `GET` | `/models/available` | Query only | `AvailableModelsResponse` | `USER` or `ADMIN` | Preferred user-facing model list. Only succeeded/usable models should be shown in inference UI. `experiment_name` is human-readable and should be preferred in model pickers. May also include `inference_profile` for preset/source-of-truth inference metadata. |
 
 Compatibility note:
 - Current frontend falls back to `/engine/models/me` if `/models/available` is unavailable.
@@ -66,7 +66,7 @@ Compatibility note:
 | `POST` | `/engine/datasets/upload/multipart/init` | Query: `filename`, `content_type` | `EngineMultipartUploadInitResponse` | `ADMIN` | Multipart upload entrypoint. |
 | `GET` | `/engine/datasets/upload/multipart/presign` | Query: `dataset_id`, `upload_id`, `part_number`, `expires_seconds` | `EngineMultipartUploadPresignResponse` | `ADMIN` | Frontend must pass returned `headers` during `PUT`. |
 | `POST` | `/engine/datasets/upload/multipart/complete` | `EngineMultipartUploadCompleteRequest` + `dataset_id` query | `EngineDatasetUploadResponse` | `ADMIN` | Finalizes multipart upload. |
-| `POST` | `/engine/datasets/{dataset_id}/analyze` | `EngineDatasetAnalyzeRequest` | `EngineDatasetAnalyzeResponse` | `ADMIN` | Returns strategy, `task_type`, mapping, feasibility, and `training_payload`. |
+| `POST` | `/engine/datasets/{dataset_id}/analyze` | `EngineDatasetAnalyzeRequest` | `EngineDatasetAnalyzeResponse` | `ADMIN` | Returns strategy, `task_type`, mapping, feasibility, and `training_payload`. For movie datasets, `mapping.title` may be detected as `movie_name`. |
 
 Important dataset validations:
 - `sample_rows` is `1..10000`
@@ -101,14 +101,23 @@ Training/job compatibility rules currently implemented in the frontend:
 
 | Method | Route | Request | Response | Auth | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/engine/jobs/{job_id}/recommend` | Query: `user_id`, `top_k` | `EngineRecommendResponse` | `USER` or `ADMIN` | Classic user-facing recommendation flow. |
-| `GET` | `/engine/jobs/{job_id}/prediction` | Query-driven sample fields | `EnginePredictionResponse` | `USER` or `ADMIN` | Alternate sample prediction route; not primary frontend flow. |
-| `POST` | `/engine/jobs/{job_id}/prediction/scenario` | `EngineScenarioPredictionRequest` | `EnginePredictionResponse` | `USER` or `ADMIN` | Used for context-aware / `action_recommendation` datasets. |
+| `GET` | `/engine/jobs/{job_id}/recommend` | Query: `user_id`, `top_k` | `EngineRecommendResponse` | `USER` or `ADMIN` | Classic user-facing recommendation flow kept for compatibility. Recommendation items now add optional `movie_name` without removing `item_id`. |
+| `GET` | `/engine/jobs/{job_id}/prediction` | Query-driven sample fields | `EnginePredictionResponse` | `USER` or `ADMIN` | Alternate sample prediction route; not primary frontend flow. Recommendation items may also include optional `movie_name`. |
+| `POST` | `/engine/jobs/{job_id}/prediction/scenario` | `EngineScenarioPredictionRequest` | `EnginePredictionResponse` | `USER` or `ADMIN` | Primary frontend inference route for dataset-agnostic sample-based flows. Recommendation items may also include optional `movie_name`. |
 
 Important prediction notes:
 - `top_k` for scenario prediction is `1..100`
 - `item_id` in results is not guaranteed numeric
+- Model list endpoints and `GET /engine/jobs/{job_id}` may expose `inference_profile` with `supported_presets`, `recommended_preset`, `sample_fields`, and `required_sample_fields`
+- Frontend should prefer `inference_profile` from the selected model object and fall back to job detail hydration when needed
+- Frontend must not infer preset names from filenames when `inference_profile` exists
+- `movie_name` is additive and may be `null`; frontend should interpret it as a generic display title and fall back to `item_id`
+- `task_type` is the primary rendering switch for the recommendations UI
 - `task_type === "action_recommendation"` adds `recommended_action`, `action_candidates`, and `effectiveness_estimate`
+- `recommended_action` and `action_candidates` should render above any generic ranked results table
+- `effectiveness_estimate` is a model estimate and should not be labeled as a guaranteed KPI or business probability
+- `action_candidates` may expose effectiveness as `score` or `mean_effectiveness`; frontend should normalize both
+- Preset shortcuts should be limited to `supported_presets`; when empty, the frontend should fall back to the generic editor only
 
 ## Frontend-Used Endpoint Set
 
@@ -127,4 +136,3 @@ These are the endpoints the current UI already uses directly or via compatibilit
 - `GET /engine/jobs/{job_id}/prediction` sample-based query prediction route
 - `PUT /engine/jobs/{job_id}/attach-dataset`
 - Bulk delete routes for datasets and models
-
