@@ -20,6 +20,7 @@ import {
   TrainingJobState,
   TrainingJobProgressStream,
   TrainingJobEpochStream,
+  TrainingAutoOptions,
 } from '@/types';
 
 type UploadedDatasetInfo = {
@@ -1027,13 +1028,11 @@ export const datasetApi = {
 export const trainingApi = {
   trainAuto: async (
     datasetId: string,
-    options: {
-      persist_job_to_postgres?: boolean;
-      persist_vectors_to_postgres?: boolean;
-    } = {}
+    options: TrainingAutoOptions = {}
   ): Promise<TrainingJob> => {
     const response = await apiClient.post<EngineTrainResponse>('/engine/train/auto', {
       dataset_id: datasetId,
+      num_epochs: options.num_epochs ?? undefined,
       persist_job_to_postgres: options.persist_job_to_postgres ?? undefined,
       persist_vectors_to_postgres: options.persist_vectors_to_postgres ?? undefined,
     });

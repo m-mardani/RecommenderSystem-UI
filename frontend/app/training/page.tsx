@@ -134,7 +134,7 @@ export default function TrainingPage() {
     setSubmitting(true);
 
     try {
-      await trainingApi.trainAuto(formData.datasetId, parsedEpochs);
+      await trainingApi.trainAuto(formData.datasetId, { num_epochs: parsedEpochs });
       alert(translations.training.startSuccess);
       setFormData({ datasetId: '', numEpochs: '10', maxRows: '', smokeMaxRows: '100' });
       setAnalysis(null);

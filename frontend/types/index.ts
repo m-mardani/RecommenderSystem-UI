@@ -231,6 +231,12 @@ export interface TrainingStartOptions {
   max_rows?: number;
 }
 
+export interface TrainingAutoOptions {
+  num_epochs?: number;
+  persist_job_to_postgres?: boolean;
+  persist_vectors_to_postgres?: boolean;
+}
+
 export interface ApiError {
   detail: string;
   status?: number;
