@@ -67,7 +67,7 @@
 
 ### پیش‌نیازها
 
-- Node.js 18+
+- Node.js 22+
 - npm یا yarn
 - سرور FastAPI در حال اجرا
 
@@ -171,12 +171,16 @@ frontend/
 **مجموعه داده‌ها و آموزش:**
 - `GET /api/v1/engine/datasets/db`
 - `POST /api/v1/engine/datasets/upload`
+- `POST /api/v1/engine/datasets/upload/multipart/init`
+- `GET /api/v1/engine/datasets/upload/multipart/presign`
+- `POST /api/v1/engine/datasets/upload/multipart/complete`
 - `POST /api/v1/engine/train`
 - `POST /api/v1/engine/train/auto`
 
 **مدل‌ها و توصیه‌ها:**
 - `GET /api/v1/admin/models`
 - `DELETE /api/v1/engine/models/{job_id}`
+- `POST /api/v1/engine/jobs/{job_id}/prediction/scenario`
 - `GET /api/v1/engine/jobs/{job_id}/recommend`
 
 ## توسعه

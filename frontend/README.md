@@ -42,7 +42,7 @@
 
 ## پیش‌نیازها
 
-- Node.js 18 یا بالاتر
+- Node.js 22 یا بالاتر
 - npm یا yarn
 - سرور FastAPI در حال اجرا
 
@@ -174,6 +174,7 @@ frontend/
 - `DELETE /api/v1/engine/models/{job_id}`
 
 ### توصیه‌ها
+- `POST /api/v1/engine/jobs/{job_id}/prediction/scenario` - مسیر اصلی inference برای همه نوع دیتاست/مدل با `inference_profile`
 - `GET /api/v1/engine/jobs/{job_id}/recommend`
 
 ## توسعه

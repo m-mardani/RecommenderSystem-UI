@@ -61,7 +61,7 @@
       radial-gradient(circle at top left, rgba(139, 92, 246, 0.12), transparent 20%),
       linear-gradient(180deg, #f8fbff 0%, #eef4fb 48%, #f7fafc 100%);
     color: var(--foreground);
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: 'Vazirmatn', Tahoma, Arial, sans-serif;
   }
 
   a {
@@ -114,7 +114,7 @@
 
 @layer components {
   .font-vazir {
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: 'Vazirmatn', Tahoma, Arial, sans-serif;
   }
 
   .app-shell {

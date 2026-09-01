@@ -161,6 +161,9 @@ type MultipartUploadOptions = {
   onProgressBytes?: (uploadedBytes: number) => void;
 };
 
+const MULTIPART_ETAG_ERROR_HINT =
+  'Storage did not expose the ETag response header. Configure MinIO/S3 CORS with ExposeHeaders=["ETag"] and ensure any Nginx/storage proxy forwards ETag for presigned PUT responses.';
+
 const joinUrl = (base: string, path: string): string => {
   const b = String(base || '').replace(/\/$/, '');
   const p = String(path || '');
@@ -274,7 +277,9 @@ export const multipartUploadDataset = async (
 
     const etagRaw = putRes.headers.get('etag') || '';
     const etag = etagRaw.replace(/^W\//, '').replace(/^"|"$/g, '').trim();
-    if (!etag) throw new Error(`Missing ETag for part ${partNumber}`);
+    if (!etag) {
+      throw new Error(`Missing ETag for part ${partNumber}. ${MULTIPART_ETAG_ERROR_HINT}`);
+    }
 
     parts.push({ part_number: partNumber, etag });
     uploadedBytes += chunk.size;

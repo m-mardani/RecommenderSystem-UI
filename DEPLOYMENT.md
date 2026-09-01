@@ -25,7 +25,7 @@
 متغیر محیطی زیر را اضافه کنید:
 
 ```
-NEXT_PUBLIC_API_URL=https://your-backend-api.com/api
+NEXT_PUBLIC_API_URL=https://api.example.com/api/v1
 ```
 
 ### مرحله ۴: استقرار
@@ -49,7 +49,7 @@ Publish directory: frontend/.next
 ### مرحله ۳: متغیرهای محیطی
 
 ```
-NEXT_PUBLIC_API_URL=https://your-backend-api.com/api
+NEXT_PUBLIC_API_URL=https://api.example.com/api/v1
 ```
 
 ### مرحله ۴: استقرار
@@ -63,7 +63,7 @@ NEXT_PUBLIC_API_URL=https://your-backend-api.com/api
 فایل `Dockerfile` در پوشه `frontend`:
 
 ```dockerfile
-FROM node:18-alpine AS base
+FROM node:22-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -124,7 +124,7 @@ export default nextConfig;
 
 ```bash
 # Build
-docker build --build-arg NEXT_PUBLIC_API_URL=http://your-api:8000/api -t recommender-ui .
+docker build --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api/v1 -t recommender-ui .
 
 # Run
 docker run -p 3000:3000 recommender-ui
@@ -135,7 +135,7 @@ docker run -p 3000:3000 recommender-ui
 ### مرحله ۱: نصب Node.js
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
@@ -150,13 +150,14 @@ sudo npm install -g pm2
 ```bash
 git clone https://github.com/your-username/RecommenderSystem-UI.git
 cd RecommenderSystem-UI/frontend
-npm install
+npm ci
 ```
 
 ایجاد `.env.local`:
 
 ```bash
-echo "NEXT_PUBLIC_API_URL=http://your-api:8000/api" > .env.local
+cp .env.production.example .env.local
+nano .env.local
 ```
 
 Build:
@@ -173,7 +174,19 @@ pm2 save
 pm2 startup
 ```
 
+برای اجرای مستقیم خروجی standalone نیز می‌توانید بعد از build از این دستور استفاده کنید:
+
+```bash
+HOSTNAME=0.0.0.0 PORT=3000 node .next/standalone/server.js
+```
+
 ### مرحله ۵: تنظیم Nginx
+
+نمونه کامل‌تر برای VPS در فایل `deploy/nginx/recommender-ui.vps.conf` قرار دارد. این نمونه سه upstream جدا دارد:
+
+- `app.example.com` برای Next.js روی پورت `3000`
+- `api.example.com` برای FastAPI روی پورت `8000`
+- `storage.example.com` برای MinIO/S3 روی پورت `9000`
 
 ```nginx
 server {
@@ -186,6 +199,7 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
     }
 }
@@ -232,6 +246,44 @@ pip install gunicorn uvicorn[standard]
 gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
 ```
 
+## آپلود فایل‌های حجیم با MinIO/S3
+
+آپلود فایل در UI از flow چندبخشی استفاده می‌کند:
+
+1. فرانت از FastAPI درخواست `multipart/init` و `multipart/presign` می‌گیرد.
+2. هر chunk مستقیم با `PUT` به URL برگشتی از MinIO/S3 ارسال می‌شود.
+3. فرانت باید header پاسخ `ETag` را بخواند و در `multipart/complete` به backend بفرستد.
+
+اگر در UI خطای `Missing ETag for part ...` دیدید، معمولاً یکی از این تنظیمات ناقص است:
+
+- bucket یا endpoint ذخیره‌سازی `ETag` را در CORS expose نکرده است.
+- دامنه فرانت در `AllowedOrigins` ذخیره‌سازی نیست.
+- Nginx یا proxy جلوی storage header `ETag` را عبور نمی‌دهد.
+
+نمونه CORS برای MinIO/S3 در `deploy/minio/cors.json` قرار دارد:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://app.example.com"],
+    "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+روی MinIO می‌توانید بعد از جایگزینی دامنه‌ها، CORS bucket را با `mc` اعمال کنید:
+
+```bash
+mc alias set local https://storage.example.com MINIO_ACCESS_KEY MINIO_SECRET_KEY
+mc cors set local/rs-datasets deploy/minio/cors.json
+mc cors get local/rs-datasets
+```
+
+FastAPI باید با storage نوع S3/MinIO بالا بیاید. اگر backend خطای `Multipart upload requires STORAGE_KIND=s3` برگرداند، یعنی تنظیم storage هنوز برای multipart production آماده نیست.
+
 ## Docker Compose (Full Stack)
 
 فایل `docker-compose.yml`:
@@ -255,7 +307,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000/api
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
     ports:
       - "3000:3000"
     depends_on:
@@ -380,7 +432,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v2
         with:
-          node-version: '18'
+          node-version: '22'
       
       - name: Install dependencies
         run: |
