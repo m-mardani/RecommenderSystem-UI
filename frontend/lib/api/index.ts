@@ -208,10 +208,11 @@ export const multipartUploadDataset = async (
   if (!baseURL) throw new Error('API base URL is not configured');
   const t = String(token || '').trim();
   if (!t) throw new Error('Access token is required');
+  const contentType = file.type || 'text/csv';
 
   const initUrl = joinUrl(
     baseURL,
-    `/engine/datasets/upload/multipart/init?filename=${encodeURIComponent(file.name)}&content_type=${encodeURIComponent(file.type || 'text/csv')}`
+    `/engine/datasets/upload/multipart/init?filename=${encodeURIComponent(file.name)}&content_type=${encodeURIComponent(contentType)}`
   );
 
   const authHeaders = { Authorization: `Bearer ${t}` };
@@ -261,9 +262,14 @@ export const multipartUploadDataset = async (
       `Presign failed (part ${partNumber})`
     );
 
+    // The direct storage PUT must not carry the API bearer token.
+    const putHeaders = new Headers(presignResp.headers ?? {});
+    putHeaders.delete('authorization');
+    putHeaders.set('content-type', contentType);
+
     const putRes = await fetch(presignResp.url, {
       method: 'PUT',
-      headers: presignResp.headers ?? {},
+      headers: putHeaders,
       body: chunk,
       signal: options?.signal,
     });

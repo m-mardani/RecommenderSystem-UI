@@ -10,3 +10,4 @@
 - Improved multipart upload error message for missing `ETag`.
 - Updated README and deployment docs for Node 22, `/api/v1`, multipart upload, and scenario prediction.
 - Removed `next/font/google` dependency so production builds do not require fetching Google Fonts.
+- Fixed multipart presigned PUT headers by removing `Authorization` and matching the init `Content-Type` exactly.
