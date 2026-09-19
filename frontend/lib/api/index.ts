@@ -1,4 +1,4 @@
-import { apiClient, setTokens, clearTokens, getAccessToken } from './client';
+import { apiClient, trainingApiClient, setTokens, clearTokens, getAccessToken } from './client';
 import type { AxiosProgressEvent } from 'axios';
 import {
   LoginCredentials,
@@ -1041,7 +1041,7 @@ export const trainingApi = {
     datasetId: string,
     options: TrainingAutoOptions = {}
   ): Promise<TrainingJob> => {
-    const response = await apiClient.post<EngineTrainResponse>('/engine/train/auto', {
+    const response = await trainingApiClient.post<EngineTrainResponse>('/engine/train/auto', {
       dataset_id: datasetId,
       num_epochs: options.num_epochs ?? undefined,
       persist_job_to_postgres: options.persist_job_to_postgres ?? undefined,
@@ -1065,7 +1065,7 @@ export const trainingApi = {
     if (!Number.isFinite(normalizedEpochs) || normalizedEpochs < 1) throw new Error('num_epochs must be >= 1');
     const epochs = normalizedEpochs;
 
-    const response = await apiClient.post<EngineTrainResponse>('/engine/train', {
+    const response = await trainingApiClient.post<EngineTrainResponse>('/engine/train', {
       dataset_id: datasetId,
       num_epochs: epochs,
       strategy: stringOrUndefined(options.strategy),

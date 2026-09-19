@@ -1,0 +1,17 @@
+services:
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      network: host
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8001/api/v1}
+        NEXT_PUBLIC_TRAINING_API_URL: ${NEXT_PUBLIC_TRAINING_API_URL:-http://127.0.0.1:8002/api/v1}
+    image: recommendersystem-ui:latest
+    ports:
+      - "${UI_HOST_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    restart: unless-stopped

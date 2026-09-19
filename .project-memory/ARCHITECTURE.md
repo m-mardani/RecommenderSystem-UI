@@ -2,8 +2,9 @@
 
 Runtime shape:
 - Next.js App Router application in `frontend/`.
-- Browser calls FastAPI through `NEXT_PUBLIC_API_URL`, expected to end in `/api/v1`.
-- Axios client in `frontend/lib/api/client.ts` injects JWT access tokens and refreshes expired tokens.
+- Browser calls the normal FastAPI API through `NEXT_PUBLIC_API_URL`, expected to end in `/api/v1`.
+- Training start requests can use a separate backend through `NEXT_PUBLIC_TRAINING_API_URL`; when unset it falls back to `NEXT_PUBLIC_API_URL`.
+- Axios clients in `frontend/lib/api/client.ts` inject JWT access tokens and refresh expired tokens through the normal API URL.
 - API adapters and normalization live in `frontend/lib/api/index.ts`.
 
 Page responsibilities:

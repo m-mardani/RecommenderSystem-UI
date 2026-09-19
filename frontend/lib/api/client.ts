@@ -2,13 +2,7 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { jwtDecode } from 'jwt-decode';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
-
-const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const TRAINING_API_BASE_URL = process.env.NEXT_PUBLIC_TRAINING_API_URL || API_BASE_URL;
 
 // Token management
 const getAccessToken = (): string | null => {
@@ -60,74 +54,88 @@ const isTokenExpired = (token: string): boolean => {
   }
 };
 
-// Request interceptor to add auth token
-apiClient.interceptors.request.use(
-  async (config: InternalAxiosRequestConfig) => {
-    let accessToken = getAccessToken();
+const createApiClient = (baseURL: string): AxiosInstance => {
+  const client = axios.create({
+    baseURL,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
 
-    // Check if token is expired and refresh if needed
-    if (accessToken && isTokenExpired(accessToken)) {
-      const refreshToken = getRefreshToken();
-      if (refreshToken && !isTokenExpired(refreshToken)) {
-        try {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
-          const { access_token, refresh_token: new_refresh_token } = response.data;
-          setTokens(access_token, new_refresh_token);
-          accessToken = access_token;
-        } catch (error) {
+  // Request interceptor to add auth token
+  client.interceptors.request.use(
+    async (config: InternalAxiosRequestConfig) => {
+      let accessToken = getAccessToken();
+
+      // Check if token is expired and refresh if needed
+      if (accessToken && isTokenExpired(accessToken)) {
+        const refreshToken = getRefreshToken();
+        if (refreshToken && !isTokenExpired(refreshToken)) {
+          try {
+            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
+            const { access_token, refresh_token: new_refresh_token } = response.data;
+            setTokens(access_token, new_refresh_token);
+            accessToken = access_token;
+          } catch (error) {
+            clearTokens();
+            redirectToLoginIfNeeded();
+            return Promise.reject(error);
+          }
+        } else {
           clearTokens();
           redirectToLoginIfNeeded();
-          return Promise.reject(error);
+          return Promise.reject(new Error('Token expired'));
         }
-      } else {
-        clearTokens();
-        redirectToLoginIfNeeded();
-        return Promise.reject(new Error('Token expired'));
       }
+
+      if (accessToken) {
+        config.headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      return config;
+    },
+    (error) => {
+      return Promise.reject(error);
     }
+  );
 
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
-    }
+  // Response interceptor to handle 401 errors
+  client.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config;
 
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+      if (error.response?.status === 401 && !originalRequest._retry) {
+        originalRequest._retry = true;
 
-// Response interceptor to handle 401 errors
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+        const refreshToken = getRefreshToken();
+        if (refreshToken && !isTokenExpired(refreshToken)) {
+          try {
+            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
+            const { access_token, refresh_token: new_refresh_token } = response.data;
+            setTokens(access_token, new_refresh_token);
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      const refreshToken = getRefreshToken();
-      if (refreshToken && !isTokenExpired(refreshToken)) {
-        try {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { token: refreshToken });
-          const { access_token, refresh_token: new_refresh_token } = response.data;
-          setTokens(access_token, new_refresh_token);
-
-          originalRequest.headers.Authorization = `Bearer ${access_token}`;
-          return apiClient(originalRequest);
-        } catch (refreshError) {
+            originalRequest.headers.Authorization = `Bearer ${access_token}`;
+            return client(originalRequest);
+          } catch (refreshError) {
+            clearTokens();
+            redirectToLoginIfNeeded();
+            return Promise.reject(refreshError);
+          }
+        } else {
           clearTokens();
           redirectToLoginIfNeeded();
-          return Promise.reject(refreshError);
         }
-      } else {
-        clearTokens();
-        redirectToLoginIfNeeded();
       }
+
+      return Promise.reject(error);
     }
+  );
 
-    return Promise.reject(error);
-  }
-);
+  return client;
+};
 
-export { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken };
+const apiClient: AxiosInstance = createApiClient(API_BASE_URL);
+const trainingApiClient: AxiosInstance = createApiClient(TRAINING_API_BASE_URL);
+
+export { apiClient, trainingApiClient, setTokens, clearTokens, getAccessToken, getRefreshToken };
