@@ -9,7 +9,7 @@ services:
         NEXT_PUBLIC_TRAINING_API_URL: ${NEXT_PUBLIC_TRAINING_API_URL:-http://127.0.0.1:8002/api/v1}
     image: recommendersystem-ui:latest
     ports:
-      - "${UI_HOST_PORT:-3000}:3000"
+      - "${UI_HOST_PORT:-3200}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
